@@ -1,0 +1,14 @@
+2026-11-20 Asia/Shanghai | Windows configuration checks
+PASS YAML structure: build workflow / device SDK build matrix
+PASS YAML structure: project targets / both schemes
+PASS plist parse: iOS, Watch and HealthKit configuration
+PASS Swift grammar: AudioProbe.swift
+PASS Swift grammar: HealthProbe.swift
+PASS Swift grammar: Journal.swift
+PASS Swift grammar: MoodFlowApp.swift
+LIMIT: Grammar checks do not type-check Apple SDK calls.
+Device service: Running
+USB: OK Apple Mobile Device USB Composite Device
+USB: OK Apple Mobile Device USB Device
+USB: OK Apple iPhone
+Xcode / device SDKs unavailable on Windows. No native or device result recorded.

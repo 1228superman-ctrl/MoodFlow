@@ -1,0 +1,42 @@
+name: Build MoodFlow validation apps
+on:
+  push:
+    paths:
+      - 'Native/**'
+      - 'Config/**'
+      - 'project.yml'
+      - 'scripts/**'
+      - '.github/workflows/build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  device:
+    runs-on: macos-26
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [sim, health]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Inspect toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+          xcrun --sdk iphoneos --show-sdk-path
+          xcrun --sdk watchos --show-sdk-path
+          command -v xcodegen || brew install xcodegen
+          xcodegen --version
+      - name: Compile iOS and watchOS and assemble IPA
+        run: bash scripts/build.sh ${{ matrix.flavor }}
+      - name: Upload build evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: moodflow-${{ matrix.flavor }}
+          path: |
+            build/${{ matrix.flavor }}/*.log
+            build/${{ matrix.flavor }}/*.ipa
+            build/${{ matrix.flavor }}/SHA256SUMS.txt
+          retention-days: 7

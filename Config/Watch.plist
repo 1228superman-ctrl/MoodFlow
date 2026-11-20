@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+  <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+  <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleDisplayName</key><string>心绪验证</string>
+  <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+  <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+  <key>WKApplication</key><true/>
+  <key>WKCompanionAppBundleIdentifier</key><string>org.moodflow.validation</string>
+  <key>NSHealthShareUsageDescription</key><string>读取心率、HRV 和睡眠以验证设备权限及后台响应。记录保存在本机。</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>启用定位测试后，在前台产生波动事件时请求一次位置。坐标保存在本机。</string>
+</dict></plist>

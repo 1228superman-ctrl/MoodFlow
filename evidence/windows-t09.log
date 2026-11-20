@@ -1,0 +1,9 @@
+2026-11-20 Asia/Shanghai | Official ChatGPT Plan Usage probe
+DevKit commit: 0a36fefeb913055c8c7a1a29b63d82b96b2e841a
+PASS npm ci --ignore-scripts --no-audit --no-fund
+PASS npm run build -w @siwc/local
+Probe stopped. {"reason":"authorization"}
+Probe stopped. {"reason":"authorization","code":"api_error","status":403}
+curl discovery HTTP 403
+Node discovery HTTP 403
+Authorization browser not opened. Inference not attempted.

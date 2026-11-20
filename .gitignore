@@ -1,0 +1,12 @@
+/build/
+/*.xcodeproj/
+/node_modules/
+/upstream/
+*.ipa
+*.mobileprovision
+*.p12
+*.pem
+*.m4a
+*.xcresult/
+.env*
+/evidence/private/

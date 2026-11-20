@@ -1,0 +1,41 @@
+name: MoodFlow
+options:
+  deploymentTarget:
+    iOS: "26.0"
+    watchOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.1.0"
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  MoodFlow:
+    type: application
+    platform: iOS
+    sources: [Native]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.moodflow.validation
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_FILE: Config/iOS.plist
+        CODE_SIGN_ENTITLEMENTS: Config/Health.entitlements
+  MoodFlowWatch:
+    type: application
+    platform: watchOS
+    sources: [Native]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.moodflow.validation.watchkitapp
+        TARGETED_DEVICE_FAMILY: "4"
+        INFOPLIST_FILE: Config/Watch.plist
+        CODE_SIGN_ENTITLEMENTS: Config/Health.entitlements
+schemes:
+  MoodFlow:
+    build:
+      targets:
+        MoodFlow: all
+  MoodFlowWatch:
+    build:
+      targets:
+        MoodFlowWatch: all
