@@ -4,6 +4,8 @@
 
 ## 1. GitHub Actions
 
+本次已完成的 [双端构建](https://github.com/1228superman-ctrl/MoodFlow/actions/runs/44663667728) 生成两种 IPA。本地交付包的 `ipa/` 已包含两种 IPA，可直接进入下一节。以下步骤用于重新构建。
+
 1. 将项目目录内容放在专用仓库根目录，包含隐藏目录 `.github`。公开仓库使用免费的标准 `macos-26` runner。仓库只放项目源码和已脱敏的证据。
 2. 打开 **Actions → Build MoodFlow validation apps → Run workflow**。确认 `sim` 和 `health` 两项分别完成 iOS 和 watchOS 编译及 IPA 检查。下载产物 `moodflow-sim` 和 `moodflow-health`。
 3. 解压 GitHub 产物 ZIP，保留内层 IPA。Windows 可使用以下两条命令比对 SHA-256。若具备 Python 3，可额外执行第三条检查 IPA 的目标平台和 companion 关系。

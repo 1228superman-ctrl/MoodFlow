@@ -7,8 +7,8 @@
 | 编号 | 状态 | 实际证据与待验收条件 |
 | --- | --- | --- |
 | T01 源码审查 | **通过** | 核对 MIT 原文、工程配置、平台依赖与主要 Swift 模块。复用了 Pulsr 的只读查询方式并保留版权。下文列出边界。 |
-| T02 云端编译 | **部分通过** | 双端设备编译、IPA 校验、日志上传工作流已写入项目。YAML、plist、Swift 文法通过 Windows 静态检查。公开仓库已创建，实际 macOS runner 编译仍待确认。 |
-| T03 真机安装 | **待真机验证** | Windows 已识别 iPhone USB 设备且 Apple Mobile Device Service 正在运行。尚无 IPA，WatchBridge 安装、Apple Account 登录和双端启动均未执行。 |
+| T02 云端编译 | **通过** | GitHub 标准 macOS runner 用 Xcode 26.6 成功编译两种包中的 iOS 和 watchOS 设备目标。已下载并在 Windows 核对 IPA 哈希、设备可执行文件头和双端 bundle 关系。 [Actions 成功运行](https://github.com/1228superman-ctrl/MoodFlow/actions/runs/44663667728) |
+| T03 真机安装 | **待真机验证** | Windows 已识别 iPhone USB 设备，Apple Mobile Device Service 正在运行。已下载并核对 WatchBridge 0.1.6 与两种 IPA。仍需用户完成 Apple Account 登录、2FA、设备信任并确认两端都能启动。 |
 | T04 健康数据 | **待真机验证** | HealthKit 包申请心率、HRV SDNN、睡眠三组读权限，并查询和记录最近样本。官方能力表在 iOS、watchOS 均为免费 Apple Developer 标记 HealthKit 支持。还需验证 WatchBridge 取得的 profile、实际签名、系统授权和各类型真实样本。 |
 | T05 后台监测 | **待真机验证** | 实现两端启动时注册观察者、请求后台投递、记录回调时间／应用状态／最新样本时间，并调用系统完成回调。尚无锁屏或降腕数据。 |
 | T06 震动与反馈 | **待真机验证** | 模拟波动触发 Watch 前台 `.click`，手动确认和纠正关联到本地事件 ID。未测佩戴时的触感或真机反馈持久化。 |
@@ -37,4 +37,6 @@
 - 录音方案以用户前台主动启动为起点。是否能稳定持续 180 秒，由真实音频文件时长和异常场景决定。 [Apple 录音与锁屏](https://developer.apple.com/documentation/avfaudio/avaudiosession/category-swift.struct/record)
 - T09 复用官方 Windows 可运行的 Node SDK。目前 T09 独立于原生应用，用合成数据验证计划授权和 Responses API。原生 iPhone 接入仍属于后续工作。 [OpenAI DevKit](https://github.com/openai/sign-in-with-chatgpt-devkit) · [官方模型及推理步骤](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)
 
-详细证据见 [evidence](evidence/README.md)。本阶段没有开通付费服务或更改 Windows 代理、网络设置。
+详细证据见 [evidence](evidence/README.md)。原生最低运行版本为 iOS 26.0 和 watchOS 26.0。验证包分别使用真机 SDK 编译，模拟版只在数据层使用虚构样本。云端编译使用公开仓库的免费标准 runner。
+
+本次未开通付费服务，未更改 Windows 代理或网络设置。真机日志和截图需要在设备授权及实际测试后补齐。

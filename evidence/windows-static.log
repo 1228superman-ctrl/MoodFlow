@@ -12,3 +12,10 @@ USB: OK Apple Mobile Device USB Composite Device
 USB: OK Apple Mobile Device USB Device
 USB: OK Apple iPhone
 Xcode / device SDKs unavailable on Windows. No native or device result recorded.
+Fixture iPhoneOS: org.moodflow.validation (minimum 26.0)
+Fixture WatchOS: org.moodflow.validation.watchkitapp (minimum 26.0)
+PASS: companion layout, plist linkage and device executable headers
+PASS: packaging inspector accepts fixture and rejects broken companion link
+Fixture files were generated for the inspector test only. They are not native app artifacts.
+PASS: Official WatchBridge 0.1.6 release ZIP SHA-256 and executable release checksum matched.
+Windows WatchBridge executable Authenticode status: NotSigned. Installation pending user interaction.
