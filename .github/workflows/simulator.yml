@@ -1,0 +1,33 @@
+name: Check MoodFlow in Simulator
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/simulator.yml'
+      - 'scripts/simulator.sh'
+permissions:
+  contents: read
+jobs:
+  simulator:
+    runs-on: macos-26
+    timeout-minutes: 22
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ios, watchos]
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install project generator if needed
+        run: command -v xcodegen || brew install xcodegen
+      - name: Run app, exercise feedback and verify saved entries
+        run: bash scripts/simulator.sh ${{ matrix.platform }}
+      - name: Upload simulator evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: simulator-${{ matrix.platform }}
+          path: |
+            build/simulator-${{ matrix.platform }}/*.log
+            build/simulator-${{ matrix.platform }}/*.png
+            build/simulator-${{ matrix.platform }}/synthetic-journal.json
+          retention-days: 7

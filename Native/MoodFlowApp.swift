@@ -139,16 +139,42 @@ struct MoodFlowApp: App {
     #endif
     @Environment(\.scenePhase) private var phase
     @StateObject private var probe = Probe.shared
+    #if targetEnvironment(simulator) && MOODFLOW_SIM
+    @State private var ranSimulation = false
+    #endif
 
     var body: some Scene {
         WindowGroup {
             ProbeView(probe: probe)
                 .onChange(of: phase, initial: true) { _, value in
                     probe.isActive = value == .active
-                    if probe.isActive { probe.reload() }
+                    if probe.isActive {
+                        probe.reload()
+                        #if targetEnvironment(simulator) && MOODFLOW_SIM
+                        runLaunchScenario()
+                        #endif
+                    }
                 }
         }
     }
+
+    #if targetEnvironment(simulator) && MOODFLOW_SIM
+    private func runLaunchScenario() {
+        guard !ranSimulation else { return }
+        ranSimulation = true
+        let arguments = ProcessInfo.processInfo.arguments
+        let label: String
+        if arguments.contains("--moodflow-ci-confirm") {
+            label = "愉快"
+        } else if arguments.contains("--moodflow-ci-correct") {
+            label = "紧张"
+        } else {
+            return
+        }
+        probe.variation(detail: "模拟 · 68 → 95 bpm")
+        if let event = probe.activeEvent { probe.feedback(label, for: event) }
+    }
+    #endif
 }
 
 struct ProbeView: View {
