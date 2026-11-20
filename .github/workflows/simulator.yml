@@ -9,12 +9,16 @@ permissions:
   contents: read
 jobs:
   simulator:
-    runs-on: macos-26
-    timeout-minutes: 22
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 14
     strategy:
       fail-fast: false
       matrix:
-        platform: [ios, watchos]
+        include:
+          - platform: ios
+            runner: macos-15
+          - platform: watchos
+            runner: macos-26
     steps:
       - uses: actions/checkout@v6
       - name: Install project generator if needed

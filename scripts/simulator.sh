@@ -21,6 +21,19 @@ esac
 root="$PWD/build/simulator-$1"
 mkdir -p "$root"
 exec > >(tee "$root/test.log") 2>&1
+
+with_timeout() {
+  python3 -c '
+import subprocess, sys
+try:
+    result = subprocess.run(sys.argv[2:], timeout=int(sys.argv[1]))
+except subprocess.TimeoutExpired:
+    print("Timed out: " + " ".join(sys.argv[2:]), file=sys.stderr)
+    sys.exit(124)
+sys.exit(result.returncode)
+' "$@"
+}
+
 xcodebuild -version
 xcrun simctl list -j > "$root/simulators.json"
 device_info() {
@@ -43,7 +56,8 @@ for runtime in runtimes:
     options = [device for device in devices if device["isAvailable"]
                and device["name"].startswith("iPhone" if platform == "iOS" else "Apple Watch")]
     if options:
-        chosen = options[0]
+        preferred = {"iPhone 16e", "iPhone 17e"}
+        chosen = next((device for device in options if device["name"] in preferred), options[0])
         print(chosen["udid"], runtime["name"], chosen["name"], sep="|")
         break
 else:
@@ -72,16 +86,25 @@ if [[ "$platform" == "watchOS" ]]; then
   /usr/libexec/PlistBuddy -c 'Add :WKWatchOnly bool true' "$app/Info.plist"
 fi
 codesign --force --sign - "$app"
-xcrun simctl bootstatus "$udid" -b
-xcrun simctl install "$udid" "$app"
-container=$(xcrun simctl get_app_container "$udid" "$bundle" data)
+echo "Booting simulator"
+with_timeout 170 xcrun simctl bootstatus "$udid" -b
+echo "Installing simulator build"
+with_timeout 80 xcrun simctl install "$udid" "$app"
+container=$(with_timeout 30 xcrun simctl get_app_container "$udid" "$bundle" data)
 journal="$container/Library/Application Support/MoodFlowValidation"
 
-xcrun simctl launch "$udid" "$bundle"
+take_screenshot() {
+  if ! with_timeout 25 xcrun simctl io "$udid" screenshot "$root/$1"; then
+    echo "Screenshot unavailable: $1"
+  fi
+}
+
+echo "Launching the app"
+with_timeout 45 xcrun simctl launch "$udid" "$bundle"
 sleep 3
-xcrun simctl io "$udid" screenshot "$root/01-launch.png"
-xcrun simctl terminate "$udid" "$bundle"
-xcrun simctl launch "$udid" "$bundle" --moodflow-ci-confirm
+take_screenshot 01-launch.png
+with_timeout 30 xcrun simctl terminate "$udid" "$bundle"
+with_timeout 45 xcrun simctl launch "$udid" "$bundle" --moodflow-ci-confirm
 
 wait_for_entries() {
   local minimum="$1"
@@ -96,13 +119,13 @@ wait_for_entries() {
 }
 
 wait_for_entries 2
-xcrun simctl terminate "$udid" "$bundle"
-xcrun simctl launch "$udid" "$bundle" --moodflow-ci-correct
+with_timeout 30 xcrun simctl terminate "$udid" "$bundle"
+with_timeout 45 xcrun simctl launch "$udid" "$bundle" --moodflow-ci-correct
 wait_for_entries 4
-xcrun simctl terminate "$udid" "$bundle"
-xcrun simctl launch "$udid" "$bundle"
+with_timeout 30 xcrun simctl terminate "$udid" "$bundle"
+with_timeout 45 xcrun simctl launch "$udid" "$bundle"
 sleep 2
-xcrun simctl io "$udid" screenshot "$root/02-after-relaunch.png"
+take_screenshot 02-after-relaunch.png
 
 python3 - "$journal" "$root" <<'PY'
 import json

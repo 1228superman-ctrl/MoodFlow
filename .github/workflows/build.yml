@@ -5,7 +5,8 @@ on:
       - 'Native/**'
       - 'Config/**'
       - 'project.yml'
-      - 'scripts/**'
+      - 'scripts/build.sh'
+      - 'scripts/check_ipa.py'
       - '.github/workflows/build.yml'
   workflow_dispatch:
 permissions:
