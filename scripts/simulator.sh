@@ -69,7 +69,7 @@ if [[ "$platform" == "watchOS" ]]; then
   # Give the simulator its own standalone bundle. The built device IPA keeps
   # the companion declaration and remains the artifact for WatchBridge testing.
   /usr/libexec/PlistBuddy -c 'Delete :WKCompanionAppBundleIdentifier' "$app/Info.plist"
-  /usr/libexec/PlistBuddy -c 'Add :WKRunsIndependentlyOfCompanionApp bool true' "$app/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Add :WKWatchOnly bool true' "$app/Info.plist"
 fi
 codesign --force --sign - "$app"
 xcrun simctl bootstatus "$udid" -b
