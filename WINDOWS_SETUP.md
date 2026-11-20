@@ -4,7 +4,7 @@
 
 ## 1. GitHub Actions
 
-本次已完成的 [双端构建](https://github.com/1228superman-ctrl/MoodFlow/actions/runs/44663667728) 生成两种 IPA。本地交付包的 `ipa/` 已包含两种 IPA，可直接进入下一节。以下步骤用于重新构建。
+本次已完成的 [双端构建](https://github.com/1228superman-ctrl/MoodFlow/actions/runs/44704564090) 生成两种 IPA。本地交付包的 `ipa/` 已包含两种 IPA，可直接进入下一节。以下步骤用于重新构建。
 
 1. 将项目目录内容放在专用仓库根目录，包含隐藏目录 `.github`。公开仓库使用免费的标准 `macos-26` runner。仓库只放项目源码和已脱敏的证据。
 2. 打开 **Actions → Build MoodFlow validation apps → Run workflow**。确认 `sim` 和 `health` 两项分别完成 iOS 和 watchOS 编译及 IPA 检查。下载产物 `moodflow-sim` 和 `moodflow-health`。
@@ -64,5 +64,26 @@ node ai/probe.mjs analyze ..\siwc-devkit ..\moodflow-private
 若 Git 克隆受阻，可从 [同一提交的 GitHub ZIP](https://github.com/openai/sign-in-with-chatgpt-devkit/archive/0a36fefeb913055c8c7a1a29b63d82b96b2e841a.zip) 提取，并把各命令的 DevKit 路径改为所解压的目录。
 
 登录成功且 `sharing:true` 后执行分析。只有官方 SDK 等到流完成、返回非空分析，并且结果写入本地时，T09 才通过。Windows 探针每次发送固定的虚构数据，使用官方 Responses API。若登录发现端点返回 403、账号不合资格或额度不足，保留失败证据并停止本次分析。需要断开时运行 `node ai/probe.mjs disconnect ..\siwc-devkit ..\moodflow-private`，同时可从 ChatGPT 设置管理授权。
+
+如果 PowerShell 能访问官方登录端点，但 Node.js 返回 403，可以用 PowerShell 7 和支持 `--use-env-proxy` 的 Node.js 24.5+，让本次测试进程沿用 Windows 已有代理。以下命令会在当前终端恢复原来的环境变量，回环回调仍直连。只有当系统已为官方地址配置代理时才使用。
+
+```powershell
+$official = [uri]'https://auth.openai.com/.well-known/openid-configuration'
+$proxy = [System.Net.Http.HttpClient]::DefaultProxy
+if ($proxy.IsBypassed($official)) { throw 'Windows 未对该地址使用代理' }
+$previousHttps = $env:HTTPS_PROXY
+$previousNoProxy = $env:NO_PROXY
+try {
+    $env:HTTPS_PROXY = $proxy.GetProxy($official).AbsoluteUri
+    $env:NO_PROXY = (@('127.0.0.1', 'localhost', $previousNoProxy) | Where-Object { $_ }) -join ','
+    node --use-env-proxy ai/probe.mjs sign-in ..\siwc-devkit ..\moodflow-private
+    if ($LASTEXITCODE -eq 0) {
+        node --use-env-proxy ai/probe.mjs analyze ..\siwc-devkit ..\moodflow-private
+    }
+} finally {
+    $env:HTTPS_PROXY = $previousHttps
+    $env:NO_PROXY = $previousNoProxy
+}
+```
 
 [OpenAI 官方接入示例](https://developers.openai.com/cookbook/articles/sign-in-with-chatgpt) · [注册及回调](https://developers.openai.com/siwc/token-sharing-open-source/sign-in) · [模型与推理](https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference)

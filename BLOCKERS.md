@@ -7,7 +7,7 @@
 | T05、T06 | 后台唤醒和 Watch 通常的触感受到系统管理。无锁屏实测记录。 | 用系统允许的本地通知试验延迟提醒，单独核对通知许可、专注模式和实际 Watch 呈现。原阶段可先验收前台轻震和手动确认。 |
 | T07 | 此阶段只用使用期间权限与前台单次位置。 | 若后台无法取得位置，保留事件时间、原始生理数据和定位状态，可让用户重新打开应用后补充地点，并将补记时间与事件时间一起保存。 |
 | T08 | 后台自动开始录音与 Apple Watch 连续录音缺少已验证路径。 | 先验收 iPhone 前台确认后锁屏连续录音。波动发生时可由用户打开 iPhone 手动开始。 |
-| T09、T10 | 真实登录的官方 OIDC 端点返回 HTTP 403。具体拒绝原因和账户资格仍未知。 | 在用户原有、可正常访问官方 OpenAI 登录的环境重试。继续遵循官方回环和授权流程。受阻时保留原始数据和失败状态，等待服务可用后手动重试。 |
+| 原生 ChatGPT 接入 | Windows 独立探针已完成实际官方推理。iPhone 尚无原生登录和推理联调。 | 后续再评估原生接入。当前 Windows 探针可用合成数据独立复测。失败时保留原始数据和失败状态，等待服务可用后手动重试。 |
 | 正式需求 23:59 | iOS 系统决定后台任务时机。 | 用本地日期记录应总结日期，在系统给到执行机会或应用重开时补做。按日期和版本去重，等待正式开发时验证跨时区、跨日和重试。 |
 
 [Apple 免费开发账号约束](https://developer.apple.com/help/account/basics/about-your-developer-account) · [后台任务调度](https://developer.apple.com/documentation/backgroundtasks/bgtaskscheduler) · [OpenAI 错误与恢复](https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery)

@@ -1,0 +1,8 @@
+2026-11-20 Asia/Shanghai | Official Sign in with ChatGPT verification
+Windows configured network route, used by the test process only.
+OIDC discovery: HTTP 200 via the existing Windows proxy.
+OAuth status: connected; ChatGPT plan usage granted: true.
+Official Responses API: completed with nonempty output.
+Verified both the original synthetic JSON and persisted result.
+Returned analysis on synthetic input:
+这组模拟数据中，08:45 到 08:49，心率从 68 升至 95 次/分钟，心率变异性（SDNN）从 45 降至 38 毫秒。一个可能的非情绪原因是赶路时走得更快，短时间内的活动量增加了。
