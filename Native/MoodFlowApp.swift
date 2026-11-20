@@ -84,17 +84,19 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let fix = locations.last, fix.horizontalAccuracy >= 0,
               abs(fix.timestamp.timeIntervalSinceNow) <= 30 else {
-            endLocation("无近期有效坐标")
+            Task { @MainActor in endLocation("无近期有效坐标") }
             return
         }
-        endLocation("\(fix.coordinate.latitude), \(fix.coordinate.longitude) · 精度约 \(Int(fix.horizontalAccuracy)) m")
+        let result = "\(fix.coordinate.latitude), \(fix.coordinate.longitude) · 精度约 \(Int(fix.horizontalAccuracy)) m"
+        Task { @MainActor in endLocation(result) }
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        endLocation("定位失败 · \((error as NSError).domain)/\((error as NSError).code)")
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        let result = "定位失败 · \((error as NSError).domain)/\((error as NSError).code)"
+        Task { @MainActor in endLocation(result) }
     }
 
     private func endLocation(_ result: String) {
