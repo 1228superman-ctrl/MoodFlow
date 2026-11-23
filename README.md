@@ -1,4 +1,8 @@
-# MoodFlow（心绪）第一阶段验证
+# MoodFlow（心绪）
+
+- [心绪 0.2.0 使用说明与验证结果](RELEASE_0.2.md)
+
+## 第一阶段技术验证
 
 这是 iPhone／Apple Watch 技术探针和独立的 Windows ChatGPT 接入探针。原生应用用中文显示测试入口和本机记录，最低版本为 iOS 26 和 watchOS 26，沿用 Pulsr 的平台基线。
 
