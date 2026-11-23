@@ -5,6 +5,9 @@ on:
     paths:
       - '.github/workflows/simulator.yml'
       - 'scripts/simulator.sh'
+      - 'Native/**'
+      - 'Config/**'
+      - 'project.yml'
 permissions:
   contents: read
 jobs:

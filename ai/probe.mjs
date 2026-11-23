@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdir, open, rename, unlink } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const fixture = Object.freeze({
@@ -78,7 +78,7 @@ function dpapi(operation, bytes) {
 }
 
 async function main() {
-  const [command, devkit, folderArg] = process.argv.slice(2)
+  const [command, devkit, folderArg, requestPath] = process.argv.slice(2)
   if (command === 'check-dpapi') {
     const plaintext = 'simulated-non-credential'
     const encrypted = dpapi('protect', plaintext)
@@ -88,8 +88,11 @@ async function main() {
     console.log('PASS: Windows DPAPI CurrentUser round trip using a synthetic value')
     return
   }
-  if (!['sign-in', 'analyze', 'disconnect'].includes(command) || !devkit || !folderArg) {
-    throw new Error('Usage: node ai/probe.mjs sign-in|analyze|disconnect <DevKit directory> <local data directory>')
+  if (!['sign-in', 'analyze', 'disconnect', 'summarize'].includes(command) || !devkit || !folderArg
+    || (command === 'summarize' && !requestPath)) {
+    console.error('Usage: node ai/probe.mjs sign-in|analyze|disconnect|summarize <DevKit> <local data> [request.json]')
+    process.exitCode = 1
+    return
   }
   const { createChatGPT } = await import(pathToFileURL(resolve(devkit, 'packages/local/dist/index.js')))
   const folder = resolve(folderArg)
@@ -118,20 +121,56 @@ async function main() {
     console.log('Local session disconnected.')
     return
   }
-  const result = await runAnalysis(join(folder, 'requests'), async input => {
+  async function infer(input, instructions) {
     const session = await client.getSession()
     if (!session.sharing) throw Object.assign(new Error(), { code: 'reauth_required' })
     const signal = AbortSignal.timeout(60000)
     const [model] = await client.listModels({ signal })
     if (!model) throw new Error('No available model')
     const response = await client.streamResponse({
-      model: model.slug, signal, input,
-      instructions: '用两句中文说明虚构数据里的变化和一个可能的非情绪原因，不做医学诊断。',
+      model: model.slug, signal, input, instructions,
     })
     return response.text
+  }
+  if (command === 'summarize') {
+    const source = resolve(requestPath)
+    const result = await summarizeDay(await readFile(source), infer)
+    const destination = join(dirname(source), `moodflow-${result.day}-result-${randomUUID().slice(0, 8)}.json`)
+    await writeNew(destination, result)
+    console.log(JSON.stringify({ status: result.status, reason: result.reason, file: destination }))
+    if (result.status !== 'completed') process.exitCode = 1
+    return
+  }
+  const result = await runAnalysis(join(folder, 'requests'), async input => {
+    return infer(input, '用两句中文说明虚构数据里的变化和一个可能的非情绪原因，不做医学诊断。')
   })
   console.log(JSON.stringify(result))
   if (result.status !== 'completed') process.exitCode = 1
+}
+
+export async function summarizeDay(bytes, infer) {
+  if (bytes.length > 50_000) throw new Error('Invalid MoodFlow summary request')
+  const request = JSON.parse(bytes.toString('utf8'))
+  const { schema, id, day, eventCount, moodCounts, averageBpm, averageHrv, sleepHours } = request
+  const moods = new Set(['愉快', '平静', '兴奋', '紧张', '低落', '疲惫'])
+  const validCount = number => Number.isSafeInteger(number) && number >= 0
+  const validMetric = (number, max) => number == null || (Number.isFinite(number) && number >= 0 && number <= max)
+  if (schema !== 1 || typeof id !== 'string' || !/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(id)
+    || typeof day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day) || !validCount(eventCount) || eventCount === 0
+    || !moodCounts || Array.isArray(moodCounts) || typeof moodCounts !== 'object'
+    || Object.entries(moodCounts).some(([label, count]) => !moods.has(label) || !validCount(count))
+    || Object.values(moodCounts).reduce((sum, count) => sum + count, 0) > eventCount
+    || !validMetric(averageBpm, 300) || !validMetric(averageHrv, 5000) || !validMetric(sleepHours, 24)) {
+    throw new Error('Invalid MoodFlow summary request')
+  }
+  try {
+    const text = await infer(JSON.stringify({ day, eventCount, moodCounts, averageBpm, averageHrv, sleepHours }),
+      '用简洁中文总结当天的用户情绪标记和可用指标，给出一个温和的自我观察问题。区分已记录事实及可能解释，不推测缺失的数据或作医学诊断。')
+    if (typeof text !== 'string' || !text.trim()) throw new Error('Empty completed response')
+    return { schema, id, day, status: 'completed', summary: text.trim() }
+  } catch (error) {
+    return { schema, id, day, status: 'failed', reason: classify(error) }
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

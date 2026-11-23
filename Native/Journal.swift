@@ -1,11 +1,54 @@
 import Foundation
 
-struct Entry: Codable, Identifiable {
+struct Entry: Codable, Identifiable, Sendable {
     var id = UUID().uuidString
     var time = Date()
     let kind: String
     let detail: String
     var eventID: String? = nil
+    var physiology: Physiology? = nil
+    var position: EventPosition? = nil
+    var recording: String? = nil
+
+    var isMoodEvent: Bool { kind == "波动事件" || kind == "手动心情" }
+}
+
+struct Physiology: Codable, Sendable {
+    var bpm: Double? = nil
+    var delta: Double? = nil
+    var hrv: Double? = nil
+    var sleepHours: Double? = nil
+    var stress: Int? {
+        guard let bpm else { return nil }
+        return Int(min(100, max(0, (bpm - 58) * 1.25 + abs(delta ?? 0) * 0.7 - (hrv ?? 40) * 0.25)))
+    }
+    var energy: Int? {
+        guard let sleepHours else { return nil }
+        return Int(min(100, max(0, sleepHours / 8 * 75 + min(hrv ?? 40, 80) / 4 - Double(stress ?? 0) * 0.25)))
+    }
+}
+
+struct EventPosition: Codable, Sendable {
+    let latitude: Double
+    let longitude: Double
+    let accuracy: Double
+}
+
+enum Mood: String, CaseIterable, Identifiable {
+    case joyful = "愉快", calm = "平静", excited = "兴奋", tense = "紧张", low = "低落", tired = "疲惫"
+
+    var id: String { rawValue }
+    var emoji: String {
+        switch self {
+        case .joyful: "😊"
+        case .calm: "😌"
+        case .excited: "✨"
+        case .tense: "😟"
+        case .low: "😔"
+        case .tired: "😴"
+        }
+    }
+    var title: String { emoji + " " + rawValue }
 }
 
 enum Journal {
@@ -21,6 +64,7 @@ enum Journal {
     }
 
     static func write(_ entry: Entry) throws {
+        guard UUID(uuidString: entry.id) != nil else { throw CocoaError(.fileWriteInvalidFileName) }
         let file = try directory().appendingPathComponent(entry.id + ".json")
         try JSONEncoder().encode(entry).write(to: file,
             options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -32,14 +76,21 @@ enum Journal {
     }
 
     static func recent() throws -> [Entry] {
+        Array(try entries().prefix(25))
+    }
+
+    static func entries() throws -> [Entry] {
         let files = try FileManager.default.contentsOfDirectory(at: directory(),
-            includingPropertiesForKeys: [.contentModificationDateKey])
-        let dated = files.filter { $0.pathExtension == "json" }.map { file in
-            (file, (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
-        }
-        return dated.sorted { $0.1 > $1.1 }.prefix(25).compactMap { file, _ in
+            includingPropertiesForKeys: nil)
+        return files.filter { $0.pathExtension == "json" && UUID(uuidString: $0.deletingPathExtension().lastPathComponent) != nil }
+            .compactMap { file in
             guard let data = try? Data(contentsOf: file) else { return nil }
             return try? JSONDecoder().decode(Entry.self, from: data)
-        }
+        }.sorted { $0.time > $1.time }
+    }
+
+    static func audioURL(_ name: String) -> URL? {
+        guard name.hasSuffix(".m4a"), UUID(uuidString: String(name.dropLast(4))) != nil else { return nil }
+        return try? directory().appendingPathComponent(name)
     }
 }

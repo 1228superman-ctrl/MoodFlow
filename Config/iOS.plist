@@ -5,12 +5,14 @@
   <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
   <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleDisplayName</key><string>心绪验证</string>
+  <key>CFBundleDisplayName</key><string>心绪</string>
   <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
   <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
   <key>UILaunchScreen</key><dict/>
-  <key>UIBackgroundModes</key><array><string>audio</string></array>
-  <key>NSHealthShareUsageDescription</key><string>读取心率、HRV 和睡眠以验证设备权限及后台响应。记录保存在本机。</string>
-  <key>NSLocationWhenInUseUsageDescription</key><string>启用定位测试后，在前台产生波动事件时请求一次位置。坐标保存在本机。</string>
-  <key>NSMicrophoneUsageDescription</key><string>经本次确认后录制最多三分钟的测试音频。音频保存在本机。</string>
+  <key>UIBackgroundModes</key><array><string>audio</string><string>fetch</string></array>
+  <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>org.moodflow.validation.summary</string></array>
+  <key>NSHealthShareUsageDescription</key><string>读取心率、HRV 和睡眠，用于身体状态及波动记录。</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>在你开启事件定位后，为当前波动记录一次位置。</string>
+  <key>NSMicrophoneUsageDescription</key><string>在你确认后，录制最多三分钟的语音日记。</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>经你选择后，在设备上把已有语音录音转成文字。</string>
 </dict></plist>

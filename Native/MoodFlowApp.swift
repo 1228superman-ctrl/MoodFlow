@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import UserNotifications
 #if os(iOS)
 import UIKit
 #else
@@ -12,23 +13,34 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published private(set) var entries: [Entry] = []
     @Published private(set) var writeError = false
     @Published private(set) var activeEvent: Entry?
-    @Published var locationEnabled = false
+    @Published var locationEnabled = UserDefaults.standard.bool(forKey: "event-location") {
+        didSet { UserDefaults.standard.set(locationEnabled, forKey: "event-location") }
+    }
+    @Published var noticesEnabled = UserDefaults.standard.bool(forKey: "event-notices") {
+        didSet { UserDefaults.standard.set(noticesEnabled, forKey: "event-notices") }
+    }
     private lazy var location = CLLocationManager()
     private var locating: String?
     private var locationTimeout: Task<Void, Never>?
     var isActive = false
 
     func reload() {
-        do { entries = try Journal.recent() }
+        do {
+            entries = try Journal.entries()
+            writeError = false
+        }
         catch { writeError = true }
     }
 
     @discardableResult
-    func add(_ entry: Entry) -> Bool {
+    func add(_ entry: Entry, sync: Bool = true) -> Bool {
         do {
             try Journal.write(entry)
             writeError = false
             reload()
+            if sync && (entry.isMoodEvent || ["情绪反馈", "定位结果", "生理数据"].contains(entry.kind)) {
+                Companion.shared.enqueue(entry)
+            }
             return true
         } catch {
             writeError = true
@@ -36,23 +48,70 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
 
-    func variation(id: String = UUID().uuidString, detail: String) {
+    var physiology: Physiology? {
+        entries.first { $0.kind == "生理数据" }?.physiology
+    }
+
+    var moodEvents: [Entry] { entries.filter(\.isMoodEvent) }
+    var lastMood: Mood? { entries.first(where: { $0.kind == "情绪反馈" }).flatMap { Mood(rawValue: $0.detail) } }
+
+    func mood(for event: Entry) -> Mood? {
+        entries.first { $0.kind == "情绪反馈" && $0.eventID == event.id }
+            .flatMap { Mood(rawValue: $0.detail) }
+    }
+
+    func suggestion(for event: Entry) -> Mood? {
+        guard let delta = event.physiology?.delta, abs(delta) > 0 else { return nil }
+        let similar = moodEvents.compactMap { candidate -> (Mood, Double)? in
+            guard candidate.id != event.id, let measured = candidate.physiology?.delta,
+                  candidate.detail.hasPrefix("模拟") == event.detail.hasPrefix("模拟"),
+                  abs(measured - delta) <= 14, let label = mood(for: candidate) else { return nil }
+            return (label, abs(measured - delta))
+        }.sorted { $0.1 < $1.1 }.prefix(5)
+        guard similar.count >= 3 else { return nil }
+        return Mood.allCases.first { label in
+            similar.filter { $0.0 == label }.count * 2 > similar.count
+        }
+    }
+
+    func variation(id: String = UUID().uuidString, time: Date = Date(), detail: String, physiology: Physiology? = nil) {
         do { if try Journal.contains(id) { return } }
         catch { writeError = true; return }
-        let event = Entry(id: id, kind: "波动事件", detail: detail)
+        guard detail.hasPrefix("模拟") || !moodEvents.contains(where: {
+            $0.physiology?.delta != nil && !$0.detail.hasPrefix("模拟") && abs($0.time.timeIntervalSince(time)) < 600
+        }) else { return }
+        let event = Entry(id: id, time: time, kind: "波动事件", detail: detail, physiology: physiology)
         guard add(event) else { return }
         if isActive {
             activeEvent = event
             #if os(watchOS)
             WKInterfaceDevice.current().play(.click)
             #endif
+        } else if noticesEnabled {
+            let content = UNMutableNotificationContent()
+            content.title = "有新的身体波动"
+            content.body = "打开「心绪」记录此刻的感受。"
+            content.sound = .default
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: event.id, content: content, trigger: nil))
         }
         if locationEnabled { locate(eventID: id) }
     }
 
+    func manual(_ mood: Mood) {
+        let event = Entry(kind: "手动心情", detail: "自己记录", physiology: physiology)
+        if add(event) { feedback(mood.rawValue, for: event) }
+    }
+
+    func restorePendingEvent() {
+        if activeEvent == nil {
+            activeEvent = moodEvents.first { $0.kind == "波动事件" && mood(for: $0) == nil }
+        }
+    }
+
     func feedback(_ label: String, for event: Entry) {
         if add(Entry(kind: "情绪反馈", detail: label, eventID: event.id)) {
-            activeEvent = nil
+            if activeEvent?.id == event.id { activeEvent = nil }
+            restorePendingEvent()
         }
     }
 
@@ -90,8 +149,9 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
             Task { @MainActor in endLocation("无近期有效坐标") }
             return
         }
-        let result = "\(fix.coordinate.latitude), \(fix.coordinate.longitude) · 精度约 \(Int(fix.horizontalAccuracy)) m"
-        Task { @MainActor in endLocation(result) }
+        let position = EventPosition(latitude: fix.coordinate.latitude, longitude: fix.coordinate.longitude,
+            accuracy: fix.horizontalAccuracy)
+        Task { @MainActor in endLocation("位置已保存 · 精度约 \(Int(position.accuracy)) m", position: position) }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
@@ -99,12 +159,12 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         Task { @MainActor in endLocation(result) }
     }
 
-    private func endLocation(_ result: String) {
+    private func endLocation(_ result: String, position: EventPosition? = nil) {
         guard let eventID = locating else { return }
         locating = nil
         locationTimeout?.cancel()
         locationTimeout = nil
-        add(Entry(kind: "定位结果", detail: result, eventID: eventID))
+        add(Entry(kind: "定位结果", detail: result, eventID: eventID, position: position))
     }
 }
 
@@ -116,6 +176,7 @@ final class LaunchDelegate: NSObject, UIApplicationDelegate {
         #if !MOODFLOW_SIM
         HealthProbe.shared.installObservers()
         #endif
+        Companion.shared.activate()
         return true
     }
 }
@@ -126,6 +187,7 @@ final class LaunchDelegate: NSObject, WKApplicationDelegate {
         #if !MOODFLOW_SIM
         HealthProbe.shared.installObservers()
         #endif
+        Companion.shared.activate()
     }
 }
 #endif
@@ -145,17 +207,32 @@ struct MoodFlowApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ProbeView(probe: probe)
+            rootView
                 .onChange(of: phase, initial: true) { _, value in
                     probe.isActive = value == .active
                     if probe.isActive {
                         probe.reload()
+                        probe.restorePendingEvent()
+                        Companion.shared.flush()
                         #if targetEnvironment(simulator) && MOODFLOW_SIM
                         runLaunchScenario()
                         #endif
                     }
                 }
         }
+        #if os(iOS)
+        .backgroundTask(.appRefresh(DailyQueue.refreshIdentifier)) {
+            _ = await DailyQueue.enqueueDue()
+        }
+        #endif
+    }
+
+    @ViewBuilder private var rootView: some View {
+        #if os(iOS)
+        PhoneHome(probe: probe)
+        #else
+        WatchHome(probe: probe)
+        #endif
     }
 
     #if targetEnvironment(simulator) && MOODFLOW_SIM
@@ -171,88 +248,8 @@ struct MoodFlowApp: App {
         } else {
             return
         }
-        probe.variation(detail: "模拟 · 68 → 95 bpm")
+        probe.variation(detail: "模拟 · 68 → 95 bpm", physiology: Physiology(bpm: 95, delta: 27, hrv: 38, sleepHours: 7))
         if let event = probe.activeEvent { probe.feedback(label, for: event) }
     }
     #endif
-}
-
-struct ProbeView: View {
-    @ObservedObject var probe: Probe
-    @State private var checkingHealth = false
-    #if os(iOS)
-    @StateObject private var audio = AudioProbe()
-    @State private var confirmRecording = false
-    #endif
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("心绪 · 技术验证").font(.headline)
-                #if MOODFLOW_SIM
-                Text("模拟包 · 无 HealthKit 权限").font(.caption)
-                #else
-                Button("授权并读取健康样本", action: checkHealth).disabled(checkingHealth)
-                Button("注册后台观察") {
-                    Task { await HealthProbe.shared.register() }
-                }.disabled(checkingHealth)
-                #endif
-                Toggle("前台事件定位", isOn: $probe.locationEnabled)
-                    .onChange(of: probe.locationEnabled) { _, value in
-                        if value { probe.configureLocation() }
-                    }
-                Button("注入模拟心率波动") {
-                    probe.variation(detail: "模拟 · 68 → 95 bpm")
-                }
-                if let event = probe.activeEvent {
-                    Text("这次感觉如何？").font(.caption)
-                    Button("🙂 确认愉快") { probe.feedback("愉快", for: event) }
-                    Button("😟 纠正为紧张") { probe.feedback("紧张", for: event) }
-                    Button("😐 纠正为平静") { probe.feedback("平静", for: event) }
-                }
-                #if os(iOS)
-                if audio.recording {
-                    Button("停止录音", role: .destructive) { audio.stop() }
-                } else {
-                    Button("录音验证（最多 3 分钟）") { confirmRecording = true }
-                        .disabled(audio.starting)
-                }
-                #endif
-                if probe.writeError {
-                    Text("本机记录写入或读取失败").foregroundStyle(.red)
-                }
-                Text("本机记录 · 最近 25 条").font(.headline)
-                ForEach(probe.entries) { entry in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(entry.kind + " · " + entry.time.formatted(date: .abbreviated, time: .standard))
-                        Text(entry.detail)
-                        Text(String((entry.eventID ?? entry.id).prefix(8))).foregroundStyle(.secondary)
-                    }.font(.caption)
-                }
-            }.padding()
-        }
-        #if os(iOS)
-        .confirmationDialog("请确认本次录音及在场者同意。音频只保存在本机，锁屏后可继续。", isPresented: $confirmRecording,
-            titleVisibility: .visible) {
-            Button("同意并开始录音") { Task { await audio.start() } }
-            Button("取消", role: .cancel) {}
-        }
-        #endif
-    }
-
-    private func checkHealth() {
-        #if !MOODFLOW_SIM
-        checkingHealth = true
-        Task {
-            defer { checkingHealth = false }
-            do {
-                try await HealthProbe.shared.authorize()
-                await HealthProbe.shared.readAll()
-            } catch {
-                probe.add(Entry(kind: "健康请求失败",
-                    detail: "\((error as NSError).domain)/\((error as NSError).code)"))
-            }
-        }
-        #endif
-    }
 }
