@@ -15,7 +15,7 @@
 ## 用 Windows 生成总结
 
 1. 在 iPhone 的「总结 → 历史」选择待处理日期，确认导出当天的情绪计数和可用生理指标平均值。可以选「我的 iPhone」保存在本机。导出的内容没有音频、转写、坐标、账号资料和原始样本。
-2. 将导出位置选为「我的 iPhone → 心绪」。在 Windows 打开 Apple 设备，连接并选择 iPhone，在「文件 → 心绪」把申请文件保存到 Windows 本地目录。沿用第一阶段 [Windows 安装教程](WINDOWS_SETUP.md) 中的官方 DevKit 和存储目录。若授权过期，先在该目录重新完成官方登录。
+2. 将导出位置选为「我的 iPhone → 心绪」。在 Windows 打开 Apple 设备，连接并选择 iPhone，在「文件 → 心绪」把申请文件保存到 Windows 本地目录。已装 iTunes 的电脑也可在 iPhone 下打开「文件共享」。沿用第一阶段 [Windows 安装教程](WINDOWS_SETUP.md) 中的官方 DevKit 和存储目录。若授权过期，先在该目录重新完成官方登录。
 3. 在项目目录执行以下命令，最后一个参数换成导出的文件路径。若需沿用系统已有代理，按安装教程使用当前终端的参数。
 
 ```powershell
@@ -24,4 +24,4 @@ node ai/probe.mjs summarize ..\siwc-devkit ..\moodflow-private 'D:\MoodFlow\mood
 
 4. 用 Windows「Apple 设备 → 文件 → 心绪」添加结果文件。在 iPhone 的「总结 → 导入 ChatGPT 结果」从「我的 iPhone → 心绪」选中该文件。成功完成的结果会显示在对应日期，有额度、网络或授权错误时会显示可重试状态。历史事件、录音与转写保存在应用内部目录，文件共享区只有你另外保存或导入的文件。
 
-[OpenAI 计划使用认证](https://developers.openai.com/siwc/token-sharing-open-source/sign-in) · [Apple 后台调度](https://developer.apple.com/documentation/backgroundtasks/bgtaskrequest/earliestbegindate)
+[OpenAI 计划使用认证](https://developers.openai.com/siwc/token-sharing-open-source/sign-in) · [Apple 后台调度](https://developer.apple.com/documentation/backgroundtasks/bgtaskrequest/earliestbegindate) · [Apple 设备文件共享](https://support.apple.com/zh-cn/120402) · [iTunes 文件共享](https://support.apple.com/zh-cn/120403)

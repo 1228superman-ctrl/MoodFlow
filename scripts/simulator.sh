@@ -89,7 +89,7 @@ codesign --force --sign - "$app"
 echo "Booting simulator"
 with_timeout 170 xcrun simctl bootstatus "$udid" -b
 echo "Installing simulator build"
-with_timeout 80 xcrun simctl install "$udid" "$app"
+with_timeout 120 xcrun simctl install "$udid" "$app"
 container=$(with_timeout 30 xcrun simctl get_app_container "$udid" "$bundle" data)
 journal="$container/Library/Application Support/MoodFlowValidation"
 
