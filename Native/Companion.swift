@@ -4,10 +4,10 @@ import WatchConnectivity
 @MainActor
 final class Companion: NSObject, WCSessionDelegate {
     static let shared = Companion()
-    private let key = "moodflow-companion-outbox"
-    private var outbox: [String: Data] {
-        get { UserDefaults.standard.dictionary(forKey: key) as? [String: Data] ?? [:] }
-        set { UserDefaults.standard.set(newValue, forKey: key) }
+    private func outboxURL() throws -> URL {
+        let directory = try Journal.directory().appendingPathComponent("CompanionOutbox", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
     }
 
     func activate() {
@@ -21,8 +21,12 @@ final class Companion: NSObject, WCSessionDelegate {
     func enqueue(_ entry: Entry) {
         #if !targetEnvironment(simulator)
         guard WCSession.isSupported(), let data = try? JSONEncoder().encode(entry) else { return }
-        outbox[entry.id] = data
-        flush()
+        do {
+            try data.write(to: outboxURL().appendingPathComponent(entry.id), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            flush()
+        } catch {
+            // Leave the original journal entry intact even if it could not be queued.
+        }
         #endif
     }
 
@@ -35,7 +39,11 @@ final class Companion: NSObject, WCSessionDelegate {
         guard session.isCompanionAppInstalled else { return }
         #endif
         let queued = Set(session.outstandingUserInfoTransfers.compactMap { $0.userInfo["entryID"] as? String })
-        for (id, data) in outbox where !queued.contains(id) {
+        guard let directory = try? outboxURL(),
+              let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        for file in files {
+            let id = file.lastPathComponent
+            guard !queued.contains(id), let data = try? Data(contentsOf: file) else { continue }
             session.transferUserInfo(["entryID": id, "entry": data])
         }
     }
@@ -49,14 +57,18 @@ final class Companion: NSObject, WCSessionDelegate {
               let entry = try? JSONDecoder().decode(Entry.self, from: data) else { return }
         Task { @MainActor in
             guard (try? Journal.contains(entry.id)) == false else { return }
-            Probe.shared.add(entry, sync: false)
-            Probe.shared.restorePendingEvent()
+            Probe.shared.receive(entry)
         }
     }
 
     nonisolated func session(_ session: WCSession, didFinish userInfoTransfer: WCSessionUserInfoTransfer, error: Error?) {
-        guard error == nil, let id = userInfoTransfer.userInfo["entryID"] as? String else { return }
-        Task { @MainActor in self.outbox.removeValue(forKey: id) }
+        guard error == nil, let id = userInfoTransfer.userInfo["entryID"] as? String,
+              UUID(uuidString: id) != nil else { return }
+        Task { @MainActor in
+            if let path = try? self.outboxURL().appendingPathComponent(id) {
+                try? FileManager.default.removeItem(at: path)
+            }
+        }
     }
 
     #if os(iOS)

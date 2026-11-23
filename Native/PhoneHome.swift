@@ -315,7 +315,7 @@ struct HistoryHome: View {
     }
 
     private var recordings: some View {
-        let notes = probe.entries.filter { $0.recording != nil }
+        let notes = probe.entries.filter { $0.audioName != nil }
         return VStack(alignment: .leading, spacing: 12) {
             if notes.isEmpty { Text("还没有录音。").foregroundStyle(.secondary) }
             if let message = audio.message { Text(message).font(.footnote) }

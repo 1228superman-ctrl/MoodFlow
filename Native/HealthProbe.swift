@@ -94,7 +94,7 @@ final class HealthProbe {
             let metrics = Physiology(bpm: pulses.first,
                 delta: pulses.count == 2 ? pulses[0] - pulses[1] : nil,
                 hrv: hrvValue, sleepHours: segments.isEmpty ? nil : seconds / 3600)
-            if metrics.bpm != nil || metrics.hrv != nil || metrics.sleepHours != nil {
+            if metrics != Probe.shared.physiology, metrics.bpm != nil || metrics.hrv != nil || metrics.sleepHours != nil {
                 Probe.shared.add(Entry(kind: "生理数据", detail: "Apple 健康 · 最近 24 小时", physiology: metrics))
             }
         } catch {

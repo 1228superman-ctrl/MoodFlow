@@ -11,20 +11,35 @@ struct Entry: Codable, Identifiable, Sendable {
     var recording: String? = nil
 
     var isMoodEvent: Bool { kind == "波动事件" || kind == "手动心情" }
+    var audioName: String? {
+        if let recording { return recording }
+        guard kind == "录音结束", let name = detail.split(separator: " ").last else { return nil }
+        return name.hasSuffix(".m4a") ? String(name) : nil
+    }
 }
 
-struct Physiology: Codable, Sendable {
+struct Physiology: Codable, Sendable, Equatable {
     var bpm: Double? = nil
     var delta: Double? = nil
     var hrv: Double? = nil
     var sleepHours: Double? = nil
     var stress: Int? {
         guard let bpm else { return nil }
-        return Int(min(100, max(0, (bpm - 58) * 1.25 + abs(delta ?? 0) * 0.7 - (hrv ?? 40) * 0.25)))
+        let pulseLoad = (bpm - 58) * 1.25
+        let variationLoad = abs(delta ?? 0) * 0.7
+        let variabilityAdjustment = (hrv ?? 40) * 0.25
+        return asScore(pulseLoad + variationLoad - variabilityAdjustment)
     }
     var energy: Int? {
         guard let sleepHours else { return nil }
-        return Int(min(100, max(0, sleepHours / 8 * 75 + min(hrv ?? 40, 80) / 4 - Double(stress ?? 0) * 0.25)))
+        let rest = sleepHours / 8 * 75
+        let variability = min(hrv ?? 40, 80) / 4
+        let load = Double(stress ?? 0) * 0.25
+        return asScore(rest + variability - load)
+    }
+
+    private func asScore(_ value: Double) -> Int? {
+        value.isFinite ? Int(min(100.0, max(0.0, value))) : nil
     }
 }
 

@@ -127,12 +127,12 @@ with_timeout 45 xcrun simctl launch "$udid" "$bundle"
 sleep 2
 take_screenshot 02-after-relaunch.png
 
-python3 - "$journal" "$root" <<'PY'
+python3 - "$journal" "$root" "$platform" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-journal, destination = map(Path, sys.argv[1:])
+journal, destination = map(Path, sys.argv[1:3])
 entries = [json.loads(path.read_bytes()) for path in journal.glob("*.json")]
 events = {entry["id"]: entry for entry in entries if entry["kind"] == "波动事件"}
 feedback = [entry for entry in entries if entry["kind"] == "情绪反馈"]
@@ -144,5 +144,11 @@ assert all(entry["detail"] == "模拟 · 68 → 95 bpm" for entry in events.valu
     json.dumps(entries, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
 )
 print("PASS: both synthetic variations and their confirm/correct feedback persisted across relaunch")
+if sys.argv[3] == "iOS":
+    jobs = [json.loads(path.read_bytes()) for path in (journal / "Summaries").glob("*.json")]
+    assert len(jobs) == 2 and len({job["input"]["id"] for job in jobs}) == 2, jobs
+    assert {job["input"]["eventCount"] for job in jobs} == {1, 2}, jobs
+    assert all(not job.get("result") and "averageBpm" not in job["input"] for job in jobs), jobs
+    print("PASS: catch-up and regeneration created separate pending jobs, without simulated physiology or summaries")
 print("SCOPE: simulator only; launch arguments invoked handlers, and haptics were not measured")
 PY

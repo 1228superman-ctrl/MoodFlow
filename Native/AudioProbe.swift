@@ -55,7 +55,7 @@ final class AudioProbe: NSObject, ObservableObject, AVAudioRecorderDelegate {
     func stop() { recorder?.stop() }
 
     func play(_ entry: Entry) {
-        guard !recording, let filename = entry.recording, let url = Journal.audioURL(filename) else { return }
+        guard !recording, let filename = entry.audioName, let url = Journal.audioURL(filename) else { return }
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback)
             try AVAudioSession.sharedInstance().setActive(true)
@@ -76,7 +76,7 @@ final class AudioProbe: NSObject, ObservableObject, AVAudioRecorderDelegate {
     }
 
     func transcribe(_ entry: Entry) async {
-        guard !transcribing, !recording, let filename = entry.recording, let url = Journal.audioURL(filename) else { return }
+        guard !transcribing, !recording, let filename = entry.audioName, let url = Journal.audioURL(filename) else { return }
         transcribing = true
         defer { transcribing = false }
         let authorization = await withCheckedContinuation { continuation in

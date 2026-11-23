@@ -102,6 +102,16 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         if add(event) { feedback(mood.rawValue, for: event) }
     }
 
+    func receive(_ entry: Entry) {
+        guard add(entry, sync: false) else { return }
+        if entry.kind == "波动事件", isActive, abs(entry.time.timeIntervalSinceNow) < 120 {
+            #if os(watchOS)
+            WKInterfaceDevice.current().play(.click)
+            #endif
+        }
+        restorePendingEvent()
+    }
+
     func restorePendingEvent() {
         if activeEvent == nil {
             activeEvent = moodEvents.first { $0.kind == "波动事件" && mood(for: $0) == nil }
@@ -250,6 +260,14 @@ struct MoodFlowApp: App {
         }
         probe.variation(detail: "模拟 · 68 → 95 bpm", physiology: Physiology(bpm: 95, delta: 27, hrv: 38, sleepHours: 7))
         if let event = probe.activeEvent { probe.feedback(label, for: event) }
+        #if os(iOS)
+        if label == "愉快" {
+            let tomorrow = Calendar.current.date(byAdding: .day, value: 1, to: .now) ?? .now
+            DailyQueue.enqueueDue(now: tomorrow)
+        } else {
+            _ = try? DailyQueue.request(.now, entries: probe.entries, repeatAnalysis: true)
+        }
+        #endif
     }
     #endif
 }
