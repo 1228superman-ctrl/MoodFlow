@@ -1,0 +1,11 @@
+2026-11-23 | Asia/Shanghai | T03 real-device installation
+Windows detected an Apple iPhone over USB. Apple Mobile Device Service was running.
+WatchBridge 0.1.6 executable was checked against the published SHA-256 manifest.
+WatchBridge completed USB trust with iPhone and established trust with Apple Watch.
+Apple Watch acknowledged the request to expose the Developer Mode switch.
+MoodFlow-sim.ipa passed checksum and companion layout checks and was selected in WatchBridge.
+Awaiting user confirmation of Apple Watch Developer Mode and Apple Account sign-in.
+WatchBridge confirmed that Developer Mode was enabled on Apple Watch.
+Apple Account signed in. The simulator-data companion IPA was selected and the install control became available.
+User confirmed that MoodFlow was installed and opened successfully on both the iPhone and Apple Watch.
+T03 PASS. Launch outcomes were reported by the user; no device screenshots were collected.

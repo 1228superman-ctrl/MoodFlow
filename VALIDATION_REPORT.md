@@ -1,6 +1,6 @@
 # MoodFlow 第一阶段技术验证报告
 
-日期为 2026-11-20，时区 Asia/Shanghai。基线为 Windows x64、Node.js 24.22.2、Pulsr 提交 `4341fde6abf9cd16a84703a97feba939bfee5e34`、WatchBridge 0.1.6、OpenAI DevKit 提交 `0a36fefeb913055c8c7a1a29b63d82b96b2e841a`。
+验证于 2026-11-20 开始，2026-11-23 补录真机安装结果，时区 Asia/Shanghai。基线为 Windows x64、Node.js 24.22.2、Pulsr 提交 `4341fde6abf9cd16a84703a97feba939bfee5e34`、WatchBridge 0.1.6、OpenAI DevKit 提交 `0a36fefeb913055c8c7a1a29b63d82b96b2e841a`。
 
 ## 验收状态
 
@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | T01 源码审查 | **通过** | 核对 MIT 原文、工程配置、平台依赖与主要 Swift 模块。复用了 Pulsr 的只读查询方式并保留版权。下文列出边界。 |
 | T02 云端编译 | **通过** | GitHub 标准 macOS runner 用 Xcode 26.6 成功编译两种包中的 iOS 和 watchOS 设备目标。已下载并在 Windows 核对 IPA 哈希、设备可执行文件头和双端 bundle 关系。 [Actions 成功运行](https://github.com/1228superman-ctrl/MoodFlow/actions/runs/44704564090) |
-| T03 真机安装 | **待真机验证** | 已下载并核对 WatchBridge 0.1.6 与两种 IPA。按用户要求跳过当前安装步骤。此次没有可用的 USB 数据连接，也无法把手机与 Windows 接入同一局域网，因此未完成配对、签名及双端启动。 |
+| T03 真机安装 | **通过** | 2026-11-23，WatchBridge 识别 iPhone USB 连接并建立手表信任，确认手表开发者模式已开启。用户确认选用的 `MoodFlow-sim.ipa` 已安装到 iPhone 和 Apple Watch，双端均能打开。安装结果由用户回报，尚无双端启动截图。 [设备验证记录](evidence/device-t03-2026-11-23.log) |
 | T04 健康数据 | **待真机验证** | HealthKit 包申请心率、HRV SDNN、睡眠三组读权限，并查询和记录最近样本。官方能力表在 iOS、watchOS 均为免费 Apple Developer 标记 HealthKit 支持。还需验证 WatchBridge 取得的 profile、实际签名、系统授权和各类型真实样本。 |
 | T05 后台监测 | **待真机验证** | 实现两端启动时注册观察者、请求后台投递、记录回调时间／应用状态／最新样本时间，并调用系统完成回调。尚无锁屏或降腕数据。 |
 | T06 震动与反馈 | **部分通过** | iPhone 和 Apple Watch 模拟器分别运行两次虚构波动，启动参数调用应用的确认／纠正处理逻辑。每端的两条反馈分别关联到对应事件 ID，重开后四条记录仍在。佩戴时的轻震、手动点击及真机反馈持久化仍待实测。 [双端模拟运行](https://github.com/1228superman-ctrl/MoodFlow/actions/runs/44704564096) |
@@ -39,4 +39,4 @@
 
 详细证据见 [evidence](evidence/README.md)。原生最低运行版本为 iOS 26.0 和 watchOS 26.0。两种 IPA 均用设备 SDK 编译。模拟器测试使用专用构建，运行在 iOS 26.2 和 watchOS 26.5 上；Watch 模拟器为独立包，两端的配对安装需另测。云端编译使用公开仓库的免费标准 runner。
 
-本次未开通付费服务，未更改 Windows 代理或网络设置。真机日志和截图需要在设备授权及实际测试后补齐。
+本次未开通付费服务，未更改 Windows 代理或网络设置。T03 已记录用户确认的安装与启动结果，其余设备功能和截图将在各项实测后补录。
