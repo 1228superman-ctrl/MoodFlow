@@ -1,0 +1,4 @@
+iPhoneOS: org.moodflow.validation · minimum 26.0
+WatchOS: org.moodflow.validation.watchkitapp · minimum 26.0
+WatchOS: org.moodflow.validation.watchkitapp.moodface · minimum 26.0
+PASS: companion layout, plist linkage and device executable headers
