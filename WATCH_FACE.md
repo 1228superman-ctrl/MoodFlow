@@ -6,6 +6,28 @@
 
 表盘刷新由 watchOS 负责，时间随 HealthKit 样本和 WidgetKit 的调度而变化。表盘从本机共享容器只读取事件标识、时间和显示文字。原始生理数据、录音和定位继续保存在各自的 App 容器。 [Apple WidgetKit 表盘说明](https://developer.apple.com/documentation/widgetkit/creating-accessory-widgets-and-watch-complications) · [Apple 刷新频率说明](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date)
 
+## 三套独立表盘配置
+
+每套都可单独添加到「我的表盘」。把「心绪 · 自动判断」放在矩形槽位，就能同时看到情绪文字、状态和样本时间。轻点情绪可确认或纠正。
+
+| 配置 | 苹果表盘 | 复杂功能布局 |
+| --- | --- | --- |
+| 日常 | 模块 | 中间放「心绪 · 自动判断」，其他位置留空。 |
+| 工作 | 紧凑模块 | 刻度盘选「数字」，底部放「心绪 · 自动判断」，中左放「计时器」。 |
+| 放松 | 双模块 | 中间放「心绪 · 自动判断」，底部放「正念」。如果图库没有「双模块」，可用「模块」，心绪放中间，正念放底部任一槽。 |
+
+长按手表上的当前表盘，滑到「新增」，选取表盘。进入「编辑」，滑到「复杂功能」，按上表设置。每新增一次会在收藏中生成一张可单独切换的表盘。双模块的可用性取决于手表型号。 [Apple 表盘与功能](https://support.apple.com/zh-cn/guide/watch/apde9218b440/26/watchos/26) · [Apple 添加和更改表盘](https://support.apple.com/zh-cn/guide/watch/apda6559ad78/26/watchos/26)
+
+苹果提供系统表盘和第三方复杂功能。App 内一键导入带第三方复杂功能的表盘时，苹果要求相关 App 有有效的 App Store ID。当前个人签名安装版的配置通过表盘编辑器添加。 [Apple 表盘导入接口要求](https://developer.apple.com/documentation/clockkit/clkwatchfacelibrary/addwatchface%28at%3Acompletionhandler%3A%29)
+
+## 动态主题与手机提醒（0.4.0）
+
+- 在支持矩形复杂功能的系统表盘上，选「心绪 · 日出渐变」「心绪 · 水墨留白」或「心绪 · 户外等高线」。图案跟随自动推测和用户确认变化。配色和刷新时机由 watchOS 决定，整张系统表盘的底图由系统控制。[Apple 组件显示规则](https://developer.apple.com/documentation/widgetkit/widgetrenderingmode) · [Apple 刷新说明](https://developer.apple.com/documentation/widgetkit/keeping-a-widget-up-to-date)
+- 要看全屏背景，打开手表上的「心绪 → 动态主题」。在「展示和权限 → 动态主题」选风格。点情绪文字可确认或纠正，背景会按该条记录更新。
+- 在 iPhone 上开启「心绪 → 设置 → 手机波动提醒」并允许通知。可用「发送测试通知」检查设置。iPhone 自己检测到波动，或收到手表同步的近五分钟事件时，会尝试发送本地通知。同一次波动只提醒一次。点通知进入对应的待确认事件。锁屏时，Apple 可能将通知送到手表，具体依赖配对和通知设置。[Apple 通知投递说明](https://support.apple.com/zh-cn/108369)
+
+真机验收时，分别检查三款矩形组件能添加、全屏视图能因纠正改变背景、iPhone 在前台和锁屏时的实际提示、通知能打开对应事件，以及两端观测同一波动时的去重。
+
 ## 签名与验收
 
 0.3.0 需要为 iPhone App、Watch App 和 Watch WidgetKit 扩展分别签名。Watch App 与扩展必须取得同一个 App Group，Watch App 还需要原来的 HealthKit 权限。构建产物只声明需要的权限。覆盖前需核对 Apple 签发的描述文件、二进制签名、原 App 标识及配对设备。旧版已验证的签名流程只能证明 iPhone 和 Watch App 两层包能安装，新增 WidgetKit 扩展需要单独检查。

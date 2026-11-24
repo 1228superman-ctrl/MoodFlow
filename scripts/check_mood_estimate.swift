@@ -67,6 +67,22 @@ enum EstimateChecks {
         let repeated = Entry(time: now.addingTimeInterval(1), kind: sample.kind, detail: sample.detail, physiology: sample.physiology)
         let face = MoodEstimate.watchFace(entries: [repeated, correction, linked, sample] + confirmedHistory, now: now)
         precondition(face?.status == "已确认" && face?.label == "紧张" && face?.eventID == sample.id)
+        precondition(ordinary?.appearance == .calm && face?.appearance == .tense)
+        let standalone = Entry(time: now, kind: "手动心情", detail: "自己记录")
+        let selfReport = Entry(time: now, kind: "情绪反馈", detail: "愉快", eventID: standalone.id)
+        let displayedReport = MoodEstimate.watchFace(entries: [selfReport, standalone, sample], now: now)
+        precondition(displayedReport?.appearance == .bright && displayedReport?.eventID == standalone.id)
+        precondition(MoodEstimate.watchFace(entries: [selfReport, standalone, sample], now: later) == nil)
         print("PASS: recent samples, calm/arousal/tension estimates, motion guard, expiry, personalized estimates and corrections")
+
+        precondition(PhoneVariationNotice.canSend(detected, after: nil, now: now))
+        precondition(!PhoneVariationNotice.canSend(detected, after: now, now: now))
+        precondition(!PhoneVariationNotice.canSend(oldWave, after: now, now: now))
+        precondition(!PhoneVariationNotice.canSend(detected, after: now.addingTimeInterval(-599), now: now))
+        precondition(PhoneVariationNotice.canSend(detected, after: now.addingTimeInterval(-600), now: now))
+        precondition(!PhoneVariationNotice.canSend(detected, after: nil, now: now.addingTimeInterval(301)))
+        precondition(!PhoneVariationNotice.canSend(simulated, after: nil, now: now))
+        precondition(!PhoneVariationNotice.canSend(standalone, after: nil, now: now))
+        print("PASS: mood artwork state and phone notice freshness, deduplication and sample exclusions")
     }
 }

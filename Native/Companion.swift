@@ -24,6 +24,12 @@ final class Companion: NSObject, WCSessionDelegate {
         do {
             try data.write(to: outboxURL().appendingPathComponent(entry.id), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             flush()
+            #if os(watchOS)
+            let session = WCSession.default
+            if entry.kind == "波动事件", session.activationState == .activated, session.isReachable {
+                session.sendMessage(["entry": data], replyHandler: nil, errorHandler: nil)
+            }
+            #endif
         } catch {
             // Leave the original journal entry intact even if it could not be queued.
         }
@@ -53,7 +59,17 @@ final class Companion: NSObject, WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
-        guard let data = userInfo["entry"] as? Data,
+        receiveEntry(userInfo)
+    }
+
+    #if os(iOS)
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        receiveEntry(message)
+    }
+    #endif
+
+    private nonisolated func receiveEntry(_ payload: [String: Any]) {
+        guard let data = payload["entry"] as? Data,
               let entry = try? JSONDecoder().decode(Entry.self, from: data) else { return }
         Task { @MainActor in
             guard (try? Journal.contains(entry.id)) == false else { return }

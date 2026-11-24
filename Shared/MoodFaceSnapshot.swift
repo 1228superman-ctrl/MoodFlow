@@ -1,5 +1,9 @@
 import Foundation
 
+enum MoodAppearance: String, Codable, Sendable {
+    case neutral, calm, bright, tense, subdued
+}
+
 struct MoodFaceSnapshot: Codable, Equatable {
     static let kind = "MoodFlowWatchFace"
     static let group = "group.org.moodflow.validation.moodface"
@@ -10,6 +14,7 @@ struct MoodFaceSnapshot: Codable, Equatable {
     let emoji: String
     let label: String
     let status: String
+    var appearance: MoodAppearance? = nil
 
     var expires: Date { date.addingTimeInterval(Self.freshFor) }
 

@@ -3,6 +3,7 @@ import SwiftUI
 import Charts
 import UniformTypeIdentifiers
 import UserNotifications
+import UIKit
 
 struct PhoneHome: View {
     @ObservedObject var probe: Probe
@@ -12,7 +13,9 @@ struct PhoneHome: View {
     @State private var confirmRecording = false
     @State private var connecting = false
     @State private var healthMessage: String?
+    @State private var noticesDenied = false
     @Environment(\.scenePhase) private var phase
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         TabView(selection: $selected) {
@@ -23,8 +26,14 @@ struct PhoneHome: View {
             NavigationStack { settings }.tabItem { Label("设置", systemImage: "gearshape") }.tag(3)
         }
         .tint(Color(red: 0.12, green: 0.45, blue: 0.37))
+        .onChange(of: probe.phoneNoticeSelection, initial: true) { _, selection in
+            if selection != nil { selected = 0 }
+        }
         .onChange(of: phase, initial: true) { _, value in
-            if value == .active { DailyQueue.enqueueDue() }
+            if value == .active {
+                DailyQueue.enqueueDue()
+                Task { await refreshNoticeSettings() }
+            }
         }
         .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) { now in
             let parts = Calendar.current.dateComponents([.hour, .minute], from: now)
@@ -127,16 +136,22 @@ struct PhoneHome: View {
             Section("事件") {
                 Toggle("事件定位", isOn: $probe.locationEnabled)
                     .onChange(of: probe.locationEnabled) { _, enabled in if enabled { probe.configureLocation() } }
-                Toggle("后台波动提醒", isOn: $probe.noticesEnabled)
+                Toggle("手机波动提醒", isOn: $probe.noticesEnabled)
                     .onChange(of: probe.noticesEnabled) { _, enabled in
                         if enabled {
                             Task {
                                 let granted = (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false
                                 if !granted { probe.noticesEnabled = false }
+                                await refreshNoticeSettings()
                             }
                         }
                     }
-                Text("前台波动可尝试定位。后台提醒取决于系统权限与投递时机。")
+                if noticesDenied, let url = URL(string: UIApplication.openNotificationSettingsURLString) {
+                    Button("打开系统通知设置") { openURL(url) }
+                } else if probe.noticesEnabled {
+                    Button("发送测试通知", action: sendTestNotice)
+                }
+                Text("手机检测到波动，或收到手表同步的近期事件时会提醒。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("健康数据") {
@@ -156,6 +171,21 @@ struct PhoneHome: View {
                 Text("事件会与已配对的手表同步。录音、转写和地图保存在设备上。ChatGPT 仅处理你选择导出的日统计。")
             }
         }.navigationTitle("设置")
+    }
+
+    private func refreshNoticeSettings() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        noticesDenied = settings.authorizationStatus == .denied
+        if noticesDenied { probe.noticesEnabled = false }
+    }
+
+    private func sendTestNotice() {
+        let content = UNMutableNotificationContent()
+        content.title = "心绪通知测试"
+        content.body = "手机波动提醒已开启。"
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "moodflow-notice-test", content: content, trigger: trigger))
     }
 
     private func requestRecording(_ event: Entry?) {

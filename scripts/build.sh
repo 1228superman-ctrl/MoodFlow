@@ -9,7 +9,7 @@ case "$flavor" in
 esac
 root="$PWD/build/$flavor"
 mkdir -p "$root"
-swiftc Native/Journal.swift Native/MoodEstimate.swift Shared/MoodFaceSnapshot.swift \
+swiftc Native/Journal.swift Native/MoodEstimate.swift Native/PhoneVariationNotice.swift Shared/MoodFaceSnapshot.swift \
   scripts/check_mood_estimate.swift -o "$root/check-mood-estimate"
 "$root/check-mood-estimate" | tee "$root/mood-estimate.log"
 xcodegen generate

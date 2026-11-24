@@ -14,6 +14,10 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published private(set) var entries: [Entry] = []
     @Published private(set) var writeError = false
     @Published private(set) var activeEvent: Entry?
+    #if os(iOS)
+    @Published private(set) var phoneNoticeSelection: UUID?
+    private let lastPhoneNoticeKey = "last-phone-variation-notice"
+    #endif
     @Published var locationEnabled = UserDefaults.standard.bool(forKey: "event-location") {
         didSet { UserDefaults.standard.set(locationEnabled, forKey: "event-location") }
     }
@@ -82,6 +86,9 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
                 try FileManager.default.removeItem(at: file)
             }
             WidgetCenter.shared.reloadTimelines(ofKind: MoodFaceSnapshot.kind)
+            for theme in MoodTheme.allCases {
+                WidgetCenter.shared.reloadTimelines(ofKind: theme.widgetKind)
+            }
         } catch {
             // The journal remains the source of truth. A later reload can retry the widget update.
         }
@@ -96,11 +103,13 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         }) else { return }
         let event = Entry(id: id, time: time, kind: "波动事件", detail: detail, physiology: physiology)
         guard add(event) else { return }
+        #if os(iOS)
+        if isActive { activeEvent = event }
+        postPhoneNotice(for: event)
+        #else
         if isActive {
             activeEvent = event
-            #if os(watchOS)
             WKInterfaceDevice.current().play(.click)
-            #endif
         } else if noticesEnabled {
             let content = UNMutableNotificationContent()
             content.title = "有新的身体波动"
@@ -108,6 +117,7 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
             content.sound = .default
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: event.id, content: content, trigger: nil))
         }
+        #endif
         if locationEnabled { locate(eventID: id) }
     }
 
@@ -123,13 +133,42 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     func receive(_ entry: Entry) {
         guard add(entry, sync: false) else { return }
-        if entry.kind == "波动事件", isActive, abs(entry.time.timeIntervalSinceNow) < 120 {
-            #if os(watchOS)
+        if entry.kind == "波动事件", abs(entry.time.timeIntervalSinceNow) < 120, isActive {
+            #if os(iOS)
+            if mood(for: entry) == nil, activeEvent.map({ $0.time < entry.time }) ?? true { activeEvent = entry }
+            #else
             WKInterfaceDevice.current().play(.click)
             #endif
         }
+        #if os(iOS)
+        postPhoneNotice(for: entry)
+        #endif
         restorePendingEvent()
     }
+
+    #if os(iOS)
+    private func postPhoneNotice(for event: Entry) {
+        let defaults = UserDefaults.standard
+        guard noticesEnabled,
+              PhoneVariationNotice.canSend(event, after: defaults.object(forKey: lastPhoneNoticeKey) as? Date),
+              mood(for: event) == nil else { return }
+        defaults.set(event.time, forKey: lastPhoneNoticeKey)
+        let content = UNMutableNotificationContent()
+        content.title = "心绪提醒"
+        content.body = "检测到一次波动，轻点确认当时的感受。"
+        content.sound = .default
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: event.id, content: content, trigger: nil))
+    }
+
+    func openPhoneNotice(_ identifier: String) {
+        guard UUID(uuidString: identifier) != nil else { return }
+        reload()
+        if let event = moodEvents.first(where: { $0.id == identifier && $0.kind == "波动事件" }), mood(for: event) == nil {
+            activeEvent = event
+        }
+        phoneNoticeSelection = UUID()
+    }
+    #endif
 
     func restorePendingEvent() {
         if activeEvent == nil {
@@ -199,14 +238,27 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
 
 #if os(iOS)
 @MainActor
-final class LaunchDelegate: NSObject, UIApplicationDelegate {
+final class LaunchDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
         didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
         #if !MOODFLOW_SIM
         HealthProbe.shared.installObservers()
         #endif
         Companion.shared.activate()
         return true
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .list, .sound]
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse) async {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+        let identifier = response.notification.request.identifier
+        await Probe.shared.openPhoneNotice(identifier)
     }
 }
 #else

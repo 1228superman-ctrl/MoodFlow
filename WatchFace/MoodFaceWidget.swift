@@ -29,6 +29,7 @@ private struct MoodFaceProvider: TimelineProvider {
 private struct MoodFaceView: View {
     @Environment(\.widgetFamily) private var family
     let entry: MoodFaceEntry
+    let theme: MoodTheme?
 
     var body: some View {
         let mood = entry.mood
@@ -37,18 +38,26 @@ private struct MoodFaceView: View {
             case .accessoryInline:
                 Text(mood.map { $0.emoji + " " + $0.label } ?? "心绪 · 等待数据")
             case .accessoryRectangular:
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(mood.map { $0.emoji + " " + $0.label } ?? "心绪 · 等待数据")
-                        .font(.headline).lineLimit(1).minimumScaleFactor(0.8)
-                    if let mood {
-                        HStack(spacing: 4) {
-                            Text(mood.status)
-                            Text(mood.date, style: .relative)
-                        }.font(.caption2).lineLimit(1)
-                    } else {
-                        Text("轻点记录心情").font(.caption2)
+                HStack(spacing: 3) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(mood.map { $0.emoji + " " + $0.label } ?? "心绪 · 等待数据")
+                            .font(.headline).lineLimit(1).minimumScaleFactor(0.72)
+                        if let mood {
+                            HStack(spacing: 4) {
+                                Text(mood.status)
+                                Text(mood.date, style: .relative)
+                            }.font(.caption2).lineLimit(1)
+                        } else {
+                            Text("轻点记录心情").font(.caption2)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    if let theme {
+                        MoodArtwork(theme: theme, mood: mood?.appearance ?? .neutral, compact: true)
+                            .frame(width: 38, height: 36)
+                            .clipShape(RoundedRectangle(cornerRadius: 5))
+                            .widgetAccentable()
                     }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                }
             case .accessoryCorner:
                 symbol(mood).widgetLabel { Text(mood?.label ?? "心绪") }
             default:
@@ -73,14 +82,25 @@ private struct MoodFaceView: View {
     }
 }
 
-@main
-struct MoodFaceWidget: Widget {
+private struct MoodFaceWidget: Widget {
+    var theme: MoodTheme? = nil
+
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: MoodFaceSnapshot.kind, provider: MoodFaceProvider()) { entry in
-            MoodFaceView(entry: entry)
+        StaticConfiguration(kind: theme?.widgetKind ?? MoodFaceSnapshot.kind, provider: MoodFaceProvider()) { entry in
+            MoodFaceView(entry: entry, theme: theme)
         }
-        .configurationDisplayName("心绪 · 自动判断")
+        .configurationDisplayName("心绪 · " + (theme?.title ?? "自动判断"))
         .description("显示近期心情推测。轻点确认、纠正或记录心情。")
-        .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline, .accessoryCorner])
+        .supportedFamilies(theme == nil ? [.accessoryCircular, .accessoryRectangular, .accessoryInline, .accessoryCorner] : [.accessoryRectangular])
+    }
+}
+
+@main
+struct MoodFaceWidgets: WidgetBundle {
+    var body: some Widget {
+        MoodFaceWidget()
+        MoodFaceWidget(theme: .sunrise)
+        MoodFaceWidget(theme: .ink)
+        MoodFaceWidget(theme: .contour)
     }
 }
