@@ -80,7 +80,7 @@ struct MoodFaceWidget: Widget {
             MoodFaceView(entry: entry)
         }
         .configurationDisplayName("心绪 · 自动判断")
-        .description("显示最近的自动心情判断。轻点确认、纠正或记录心情。")
+        .description("显示近期心情推测或心率趋势。轻点确认、纠正或记录心情。")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline, .accessoryCorner])
     }
 }

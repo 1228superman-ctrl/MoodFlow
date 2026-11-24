@@ -72,8 +72,8 @@ final class HealthProbe {
         do {
             let now = Date()
             let today = HKQuery.predicateForSamples(withStart: now.addingTimeInterval(-24 * 3600), end: now)
-            async let pulse = values(heart, unit: bpm, predicate: today, limit: 2)
-            async let variability = values(hrv, unit: milliseconds, predicate: today, limit: 1)
+            async let pulse = quantities(heart, predicate: today, limit: 2)
+            async let variability = quantities(hrv, predicate: today, limit: 1)
             let sleepQuery = HKSampleQueryDescriptor(
                 predicates: [.categorySample(type: sleep, predicate: today)],
                 sortDescriptors: [SortDescriptor(\.startDate)])
@@ -90,10 +90,15 @@ final class HealthProbe {
                 coveredThrough = max(coveredThrough, end)
             }
             let pulses = try await pulse
-            let hrvValue = (try await variability).first
-            let metrics = Physiology(bpm: pulses.first,
-                delta: pulses.count == 2 ? pulses[0] - pulses[1] : nil,
-                hrv: hrvValue, sleepHours: segments.isEmpty ? nil : seconds / 3600)
+            let hrvValue = (try await variability).first?.quantity.doubleValue(for: milliseconds)
+            let newest = pulses.first
+            let latestBPM = newest?.quantity.doubleValue(for: bpm)
+            let previous = pulses.dropFirst().first
+            let metrics = Physiology(bpm: latestBPM,
+                delta: latestBPM.flatMap { value in previous.map { value - $0.quantity.doubleValue(for: bpm) } },
+                hrv: hrvValue, sleepHours: segments.isEmpty ? nil : seconds / 3600,
+                sampledAt: newest?.endDate,
+                heartSampleInterval: newest.flatMap { sample in previous.map { sample.endDate.timeIntervalSince($0.endDate) } })
             if metrics != Probe.shared.physiology, metrics.bpm != nil || metrics.hrv != nil || metrics.sleepHours != nil {
                 Probe.shared.add(Entry(kind: "生理数据", detail: "Apple 健康 · 最近 24 小时", physiology: metrics))
             }
@@ -102,11 +107,11 @@ final class HealthProbe {
         }
     }
 
-    private func values(_ type: HKQuantityType, unit: HKUnit, predicate: NSPredicate, limit: Int) async throws -> [Double] {
+    private func quantities(_ type: HKQuantityType, predicate: NSPredicate, limit: Int) async throws -> [HKQuantitySample] {
         let query = HKSampleQueryDescriptor(
             predicates: [.quantitySample(type: type, predicate: predicate)],
             sortDescriptors: [SortDescriptor(\.endDate, order: .reverse)], limit: limit)
-        return try await query.result(for: store).map { $0.quantity.doubleValue(for: unit) }
+        return try await query.result(for: store)
     }
 
     private func read(_ type: HKSampleType, observed: Bool) async throws -> String {
@@ -140,7 +145,8 @@ final class HealthProbe {
                 let current = Probe.shared.physiology
                 Probe.shared.variation(id: newest.uuid.uuidString, time: newest.endDate,
                     detail: "心率 \(delta > 0 ? "上升" : "下降") \(Int(abs(delta))) bpm",
-                    physiology: Physiology(bpm: value, delta: delta, hrv: current?.hrv, sleepHours: current?.sleepHours))
+                    physiology: Physiology(bpm: value, delta: delta, hrv: current?.hrv, sleepHours: current?.sleepHours,
+                        sampledAt: newest.endDate, heartSampleInterval: interval))
             }
         }
         return "\(label) \(value.formatted(.number.precision(.fractionLength(1)))) \(isHeart ? "bpm" : "ms") · 样本 \(newest.endDate.ISO8601Format())"

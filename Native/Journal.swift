@@ -23,6 +23,8 @@ struct Physiology: Codable, Sendable, Equatable {
     var delta: Double? = nil
     var hrv: Double? = nil
     var sleepHours: Double? = nil
+    var sampledAt: Date? = nil
+    var heartSampleInterval: TimeInterval? = nil
     var stress: Int? {
         guard let bpm else { return nil }
         let pulseLoad = (bpm - 58) * 1.25

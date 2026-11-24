@@ -77,13 +77,17 @@ struct WatchHome: View {
         .sheet(isPresented: $recordingMood) {
             NavigationStack {
                 List {
-                    if let event = faceEvent, let estimate = probe.suggestion(for: event) {
-                        Text("自动判断 · 可能\(estimate.rawValue)").font(.footnote).foregroundStyle(.secondary)
+                    if let event = faceEvent, let current = MoodEstimate.watchFace(entries: probe.entries),
+                       current.eventID == event.id {
+                        Text(current.label).font(.footnote).foregroundStyle(.secondary)
                     }
                     ForEach(Mood.allCases) { mood in
                         Button(mood.title) {
-                            if let event = faceEvent { probe.feedback(mood.rawValue, for: event) }
-                            else { probe.manual(mood) }
+                            if let event = faceEvent, event.kind == "波动事件" {
+                                probe.feedback(mood.rawValue, for: event)
+                            } else {
+                                probe.manual(mood, basedOn: faceEvent)
+                            }
                             recordingMood = false
                         }
                     }
@@ -94,7 +98,9 @@ struct WatchHome: View {
 
     private var faceEvent: Entry? {
         guard let faceEventID else { return nil }
-        return probe.moodEvents.first { $0.id == faceEventID && $0.kind == "波动事件" }
+        return probe.entries.first {
+            $0.id == faceEventID && ($0.kind == "波动事件" || $0.kind == "生理数据")
+        }
     }
 
     private func showMoodPicker(eventID: String?) {

@@ -92,7 +92,7 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         do { if try Journal.contains(id) { return } }
         catch { writeError = true; return }
         guard detail.hasPrefix("模拟") || !moodEvents.contains(where: {
-            $0.physiology?.delta != nil && !$0.detail.hasPrefix("模拟") && abs($0.time.timeIntervalSince(time)) < 600
+            $0.kind == "波动事件" && $0.physiology?.delta != nil && !$0.detail.hasPrefix("模拟") && abs($0.time.timeIntervalSince(time)) < 600
         }) else { return }
         let event = Entry(id: id, time: time, kind: "波动事件", detail: detail, physiology: physiology)
         guard add(event) else { return }
@@ -111,8 +111,13 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         if locationEnabled { locate(eventID: id) }
     }
 
-    func manual(_ mood: Mood) {
-        let event = Entry(kind: "手动心情", detail: "自己记录", physiology: physiology)
+    func manual(_ mood: Mood, basedOn sample: Entry? = nil) {
+        if let sample, let event = entries.first(where: { $0.kind == "手动心情" && $0.eventID == sample.id }) {
+            feedback(mood.rawValue, for: event)
+            return
+        }
+        let event = Entry(kind: "手动心情", detail: "自己记录", eventID: sample?.id,
+            physiology: sample?.physiology ?? physiology)
         if add(event) { feedback(mood.rawValue, for: event) }
     }
 
@@ -238,6 +243,9 @@ struct MoodFlowApp: App {
                         probe.reload()
                         probe.restorePendingEvent()
                         Companion.shared.flush()
+                        #if os(watchOS) && !MOODFLOW_SIM
+                        Task { await HealthProbe.shared.readAll() }
+                        #endif
                         #if targetEnvironment(simulator) && MOODFLOW_SIM
                         runLaunchScenario()
                         #endif
