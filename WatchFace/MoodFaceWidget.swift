@@ -56,7 +56,7 @@ private struct MoodFaceView: View {
                     AccessoryWidgetBackground()
                     VStack(spacing: 1) {
                         symbol(mood)
-                        if let mood { Text(mood.status == "自动判断" ? "推测" : mood.status).font(.system(size: 8)).lineLimit(1) }
+                        if let mood { Text(mood.label).font(.system(size: 8)).lineLimit(1).minimumScaleFactor(0.75) }
                     }
                 }
             }
@@ -80,7 +80,7 @@ struct MoodFaceWidget: Widget {
             MoodFaceView(entry: entry)
         }
         .configurationDisplayName("心绪 · 自动判断")
-        .description("显示近期心情推测或心率趋势。轻点确认、纠正或记录心情。")
+        .description("显示近期心情推测。轻点确认、纠正或记录心情。")
         .supportedFamilies([.accessoryCircular, .accessoryRectangular, .accessoryInline, .accessoryCorner])
     }
 }

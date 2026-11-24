@@ -11,6 +11,7 @@ enum MoodEstimate {
         let measuredHRV = event.physiology?.hrv
         let similar = entries.compactMap { candidate -> (Mood, Double)? in
             guard isMeasuredVariation(candidate), candidate.time < event.time,
+                  sameMotion(candidate.physiology, event.physiology),
                   let prior = candidate.physiology?.delta, (prior > 0) == (delta > 0),
                   abs(prior - delta) <= 14, let label = labels[candidate.id] else { return nil }
             let hrvDistance = measuredHRV.flatMap { hrv in
@@ -38,7 +39,7 @@ enum MoodEstimate {
             }
             latest = (entry, date)
         }
-        guard let (event, date) = latest, let physiology = event.physiology else { return nil }
+        guard let (event, date) = latest, let original = event.physiology else { return nil }
         let labels = feedbackLabels(entries)
         let isVariation = isMeasuredVariation(event)
         let confirmed = labels[event.id] ?? entries.lazy
@@ -47,18 +48,35 @@ enum MoodEstimate {
         if let mood = confirmed {
             return MoodFaceSnapshot(eventID: event.id, date: date, emoji: mood.emoji, label: mood.rawValue, status: "已确认")
         }
-        let estimate = isVariation ? suggestion(for: event, entries: entries) : sampleSuggestion(for: physiology, entries: entries, labels: labels)
+        // Keep the original tap target, while using updated estimates from later reads of the same sample.
+        let current = entries.first { isMeasuredSample($0) && $0.physiology?.sampledAt == date }?.physiology
+        let physiology = isVariation ? original : current ?? original
+        let estimate = sampleSuggestion(for: physiology, entries: entries, labels: labels)
+            ?? (isVariation ? suggestion(for: event, entries: entries) : nil)
         if let mood = estimate {
-            return MoodFaceSnapshot(eventID: event.id, date: date, emoji: mood.emoji, label: "可能" + mood.rawValue, status: "自动判断")
+            return MoodFaceSnapshot(eventID: event.id, date: date, emoji: mood.emoji, label: "可能" + mood.rawValue, status: "个性推测")
         }
-        let direction = trend(physiology, variation: isVariation)
-        let display: (emoji: String, label: String) = switch direction {
-        case .some(1): ("↑", "心率上升")
-        case .some(-1): ("↓", "心率下降")
-        case .some(0): ("→", "心率平稳")
-        default: ("♡", "有近期心率")
+        if let impression = initialImpression(physiology, variation: isVariation) {
+            return MoodFaceSnapshot(eventID: event.id, date: date, emoji: impression.emoji,
+                label: "可能" + impression.label, status: "低把握")
         }
-        return MoodFaceSnapshot(eventID: event.id, date: date, emoji: display.emoji, label: display.label, status: "待确认")
+        return MoodFaceSnapshot(eventID: event.id, date: date, emoji: "♡", label: "情绪待判断",
+            status: physiology.inMotion == true ? "活动中" : "线索不足")
+    }
+
+    private static func initialImpression(_ physiology: Physiology, variation: Bool) -> (emoji: String, label: String)? {
+        guard physiology.inMotion != true else { return nil }
+        let direction = trend(physiology, variation: variation)
+        let aboveUsual = physiology.bpm.flatMap { pulse in physiology.typicalStillBPM.map { pulse - $0 } }
+        if direction == 1 || (aboveUsual ?? 0) >= 10 {
+            if let ratio = physiology.hrvRelativeToUsual, ratio <= 0.8 { return (Mood.tense.emoji, Mood.tense.rawValue) }
+            return ("⚡", "激动")
+        }
+        if let aboveUsual, aboveUsual <= -10 { return nil }
+        if direction == 0 || direction == -1 || aboveUsual.map({ abs($0) < 10 }) == true {
+            return (Mood.calm.emoji, Mood.calm.rawValue)
+        }
+        return nil
     }
 
     private static func isMeasuredSample(_ entry: Entry) -> Bool {
@@ -79,12 +97,17 @@ enum MoodEstimate {
         let similar = entries.compactMap { entry -> (date: Date, mood: Mood, distance: Double)? in
             guard entry.isMoodEvent, !entry.detail.hasPrefix("模拟"), let mood = labels[entry.id],
                   let prior = entry.physiology, let priorDate = prior.sampledAt, let priorPulse = prior.bpm,
+                  sameMotion(prior, sample),
                   entry.time <= date, priorDate < date, (0...600).contains(entry.time.timeIntervalSince(priorDate)),
                   abs(pulse - priorPulse) <= 10, trend(prior) == direction else { return nil }
             return (priorDate, mood, abs(pulse - priorPulse))
         }.sorted { $0.distance == $1.distance ? $0.date > $1.date : $0.distance < $1.distance }
         var seen = Set<Date>()
         return majority(similar.filter { seen.insert($0.date).inserted }.prefix(5).map { $0.mood })
+    }
+
+    private static func sameMotion(_ first: Physiology?, _ second: Physiology?) -> Bool {
+        (first?.inMotion == true) == (second?.inMotion == true)
     }
 
     private static func feedbackLabels(_ entries: [Entry]) -> [String: Mood] {

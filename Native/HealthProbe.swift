@@ -72,8 +72,13 @@ final class HealthProbe {
         do {
             let now = Date()
             let today = HKQuery.predicateForSamples(withStart: now.addingTimeInterval(-24 * 3600), end: now)
+            let week = HKQuery.predicateForSamples(withStart: now.addingTimeInterval(-7 * 86400), end: now, options: .strictEndDate)
+            let still = HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyHeartRateMotionContext,
+                allowedValues: [NSNumber(value: HKHeartRateMotionContext.sedentary.rawValue)])
             async let pulse = quantities(heart, predicate: today, limit: 2)
-            async let variability = quantities(hrv, predicate: today, limit: 1)
+            async let variability = quantities(hrv, predicate: week, limit: 25)
+            async let stillPulse = quantities(heart,
+                predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [week, still]), limit: 64)
             let sleepQuery = HKSampleQueryDescriptor(
                 predicates: [.categorySample(type: sleep, predicate: today)],
                 sortDescriptors: [SortDescriptor(\.startDate)])
@@ -90,15 +95,25 @@ final class HealthProbe {
                 coveredThrough = max(coveredThrough, end)
             }
             let pulses = try await pulse
-            let hrvValue = (try await variability).first?.quantity.doubleValue(for: milliseconds)
+            let variabilitySamples = (try? await variability) ?? []
+            let hrvValue = variabilitySamples.first.flatMap { sample in
+                sample.endDate >= start ? sample.quantity.doubleValue(for: milliseconds) : nil
+            }
             let newest = pulses.first
             let latestBPM = newest?.quantity.doubleValue(for: bpm)
             let previous = pulses.dropFirst().first
+            let stillSamples = (try? await stillPulse) ?? []
+            let typicalStillBPM = newest.flatMap { sample in
+                median(stillSamples.filter { (1800...).contains(sample.endDate.timeIntervalSince($0.endDate)) }, unit: bpm)
+            }
             let metrics = Physiology(bpm: latestBPM,
                 delta: latestBPM.flatMap { value in previous.map { value - $0.quantity.doubleValue(for: bpm) } },
                 hrv: hrvValue, sleepHours: segments.isEmpty ? nil : seconds / 3600,
                 sampledAt: newest?.endDate,
-                heartSampleInterval: newest.flatMap { sample in previous.map { sample.endDate.timeIntervalSince($0.endDate) } })
+                heartSampleInterval: newest.flatMap { sample in previous.map { sample.endDate.timeIntervalSince($0.endDate) } },
+                typicalStillBPM: typicalStillBPM,
+                hrvRelativeToUsual: newest.flatMap { recentHRVRatio(variabilitySamples, at: $0.endDate) },
+                inMotion: newest.flatMap(inMotion))
             if metrics != Probe.shared.physiology, metrics.bpm != nil || metrics.hrv != nil || metrics.sleepHours != nil {
                 Probe.shared.add(Entry(kind: "生理数据", detail: "Apple 健康 · 最近 24 小时", physiology: metrics))
             }
@@ -112,6 +127,28 @@ final class HealthProbe {
             predicates: [.quantitySample(type: type, predicate: predicate)],
             sortDescriptors: [SortDescriptor(\.endDate, order: .reverse)], limit: limit)
         return try await query.result(for: store)
+    }
+
+    private func median(_ samples: [HKQuantitySample], unit: HKUnit) -> Double? {
+        let values = samples.map { $0.quantity.doubleValue(for: unit) }.filter { $0.isFinite && $0 > 0 }.sorted()
+        guard values.count >= 3 else { return nil }
+        return (values[(values.count - 1) / 2] + values[values.count / 2]) / 2
+    }
+
+    private func recentHRVRatio(_ samples: [HKQuantitySample], at time: Date) -> Double? {
+        guard let recent = samples.first(where: { abs($0.endDate.timeIntervalSince(time)) <= 1800 }),
+              let typical = median(samples.filter { time.timeIntervalSince($0.endDate) > 1800 }, unit: milliseconds) else { return nil }
+        let value = recent.quantity.doubleValue(for: milliseconds)
+        return value.isFinite && value > 0 ? value / typical : nil
+    }
+
+    private func inMotion(_ sample: HKQuantitySample) -> Bool? {
+        guard let motion = sample.metadata?[HKMetadataKeyHeartRateMotionContext] as? NSNumber else { return nil }
+        switch HKHeartRateMotionContext(rawValue: motion.intValue) {
+        case .some(.active): return true
+        case .some(.sedentary): return false
+        default: return nil
+        }
     }
 
     private func read(_ type: HKSampleType, observed: Bool) async throws -> String {
@@ -143,10 +180,12 @@ final class HealthProbe {
             let age = now.timeIntervalSince(newest.endDate)
             if abs(delta) >= 20, (1...300).contains(interval), (0...300).contains(age) {
                 let current = Probe.shared.physiology
+                let context = current?.sampledAt == newest.endDate ? current : nil
                 Probe.shared.variation(id: newest.uuid.uuidString, time: newest.endDate,
                     detail: "心率 \(delta > 0 ? "上升" : "下降") \(Int(abs(delta))) bpm",
                     physiology: Physiology(bpm: value, delta: delta, hrv: current?.hrv, sleepHours: current?.sleepHours,
-                        sampledAt: newest.endDate, heartSampleInterval: interval))
+                        sampledAt: newest.endDate, heartSampleInterval: interval, typicalStillBPM: context?.typicalStillBPM,
+                        hrvRelativeToUsual: context?.hrvRelativeToUsual, inMotion: inMotion(newest)))
             }
         }
         return "\(label) \(value.formatted(.number.precision(.fractionLength(1)))) \(isHeart ? "bpm" : "ms") · 样本 \(newest.endDate.ISO8601Format())"

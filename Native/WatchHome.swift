@@ -79,7 +79,7 @@ struct WatchHome: View {
                 List {
                     if let event = faceEvent, let current = MoodEstimate.watchFace(entries: probe.entries),
                        current.eventID == event.id {
-                        Text(current.label).font(.footnote).foregroundStyle(.secondary)
+                        Text("\(current.label) · \(current.status)").font(.footnote).foregroundStyle(.secondary)
                     }
                     ForEach(Mood.allCases) { mood in
                         Button(mood.title) {
