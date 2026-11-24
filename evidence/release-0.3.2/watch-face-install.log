@@ -1,0 +1,5 @@
+MoodFlow 0.3.2 Watch-only update
+PASS: Local Apple-signed package matched the existing companion, paired Watch, HealthKit entitlements and the widget App Group.
+PASS: The Apple Watch installation service confirmed the update completed.
+PASS: The installed app reported version 0.3.2 and retained HealthKit and HealthKit background delivery entitlements.
+SCOPE: Installation confirmed. Emotion estimates and tap-to-correct on the physical Watch await user observation.
