@@ -1,0 +1,6 @@
+MoodFlow 0.3.1 Watch-only update
+PASS: local Apple-signed package exported and checked for the existing companion, matching paired Watch, HealthKit entitlements and the widget App Group.
+FIRST ATTEMPT: watchOS waited for the trust prompt to be confirmed. The update had not started.
+PASS: The user confirmed the Watch trust prompt. The Watch installation service confirmed the update completed.
+PASS: Device reported Watch version 0.3.1 with HealthKit and HealthKit background delivery entitlements.
+SCOPE: Watch-only update. Showing a result from a real heart-rate sample and background refresh still require observation on the Watch.
