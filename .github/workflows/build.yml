@@ -3,10 +3,13 @@ on:
   push:
     paths:
       - 'Native/**'
+      - 'Shared/**'
+      - 'WatchFace/**'
       - 'Config/**'
       - 'project.yml'
       - 'scripts/build.sh'
       - 'scripts/check_ipa.py'
+      - 'scripts/check_mood_estimate.swift'
       - '.github/workflows/build.yml'
   workflow_dispatch:
 permissions:

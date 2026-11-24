@@ -13,6 +13,7 @@ struct WatchHome: View {
     @ObservedObject var probe: Probe
     @AppStorage("watch-template") private var template = WatchTemplate.mood
     @State private var recordingMood = false
+    @State private var faceEventID: String?
     @State private var healthMessage: String?
     @State private var connecting = false
 
@@ -33,7 +34,7 @@ struct WatchHome: View {
                         }
                     }
                 }
-                Button("记录心情", systemImage: "plus.circle") { recordingMood = true }
+                Button("记录心情", systemImage: "plus.circle") { showMoodPicker(eventID: nil) }
                 NavigationLink("展示和权限") {
                     List {
                         Picker("展示模板", selection: $template) {
@@ -66,12 +67,39 @@ struct WatchHome: View {
                 Text("模拟数据版").font(.caption2).foregroundStyle(.secondary)
                 #endif
             }.navigationTitle("心绪")
-                .sheet(isPresented: $recordingMood) {
-                    List(Mood.allCases) { mood in
-                        Button(mood.title) { probe.manual(mood); recordingMood = false }
-                    }
-                }
         }
+        .onOpenURL { url in
+            guard url.scheme == "moodflow", url.host == "mood" else { return }
+            probe.reload()
+            let eventID = url.lastPathComponent
+            showMoodPicker(eventID: UUID(uuidString: eventID) == nil ? nil : eventID)
+        }
+        .sheet(isPresented: $recordingMood) {
+            NavigationStack {
+                List {
+                    if let event = faceEvent, let estimate = probe.suggestion(for: event) {
+                        Text("自动判断 · 可能\(estimate.rawValue)").font(.footnote).foregroundStyle(.secondary)
+                    }
+                    ForEach(Mood.allCases) { mood in
+                        Button(mood.title) {
+                            if let event = faceEvent { probe.feedback(mood.rawValue, for: event) }
+                            else { probe.manual(mood) }
+                            recordingMood = false
+                        }
+                    }
+                }.navigationTitle(faceEvent == nil ? "此刻心情" : "确认或纠正")
+            }
+        }
+    }
+
+    private var faceEvent: Entry? {
+        guard let faceEventID else { return nil }
+        return probe.moodEvents.first { $0.id == faceEventID && $0.kind == "波动事件" }
+    }
+
+    private func showMoodPicker(eventID: String?) {
+        faceEventID = eventID
+        recordingMood = true
     }
 
     @ViewBuilder private var display: some View {

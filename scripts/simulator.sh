@@ -84,6 +84,7 @@ if [[ "$platform" == "watchOS" ]]; then
   # the companion declaration and remains the artifact for WatchBridge testing.
   /usr/libexec/PlistBuddy -c 'Delete :WKCompanionAppBundleIdentifier' "$app/Info.plist"
   /usr/libexec/PlistBuddy -c 'Add :WKWatchOnly bool true' "$app/Info.plist"
+  codesign --force --sign - --entitlements Config/MoodFace.entitlements "$app/PlugIns/MoodFlowWatchFace.appex"
 fi
 codesign --force --sign - "$app"
 echo "Booting simulator"

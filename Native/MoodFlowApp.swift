@@ -5,6 +5,7 @@ import UserNotifications
 import UIKit
 #else
 import WatchKit
+import WidgetKit
 #endif
 
 @MainActor
@@ -28,6 +29,9 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         do {
             entries = try Journal.entries()
             writeError = false
+            #if os(watchOS)
+            updateWatchFace()
+            #endif
         }
         catch { writeError = true }
     }
@@ -61,18 +65,28 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func suggestion(for event: Entry) -> Mood? {
-        guard let delta = event.physiology?.delta, abs(delta) > 0 else { return nil }
-        let similar = moodEvents.compactMap { candidate -> (Mood, Double)? in
-            guard candidate.id != event.id, let measured = candidate.physiology?.delta,
-                  candidate.detail.hasPrefix("模拟") == event.detail.hasPrefix("模拟"),
-                  abs(measured - delta) <= 14, let label = mood(for: candidate) else { return nil }
-            return (label, abs(measured - delta))
-        }.sorted { $0.1 < $1.1 }.prefix(5)
-        guard similar.count >= 3 else { return nil }
-        return Mood.allCases.first { label in
-            similar.filter { $0.0 == label }.count * 2 > similar.count
+        MoodEstimate.suggestion(for: event, entries: entries)
+    }
+
+    #if os(watchOS)
+    private func updateWatchFace() {
+        let snapshot = MoodEstimate.watchFace(entries: entries)
+        guard var file = MoodFaceSnapshot.sharedFile, snapshot != MoodFaceSnapshot.read() else { return }
+        do {
+            if let snapshot {
+                try JSONEncoder().encode(snapshot).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                var metadata = URLResourceValues()
+                metadata.isExcludedFromBackup = true
+                try? file.setResourceValues(metadata)
+            } else {
+                try FileManager.default.removeItem(at: file)
+            }
+            WidgetCenter.shared.reloadTimelines(ofKind: MoodFaceSnapshot.kind)
+        } catch {
+            // The journal remains the source of truth. A later reload can retry the widget update.
         }
     }
+    #endif
 
     func variation(id: String = UUID().uuidString, time: Date = Date(), detail: String, physiology: Physiology? = nil) {
         do { if try Journal.contains(id) { return } }

@@ -6,14 +6,14 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    CURRENT_PROJECT_VERSION: "2"
-    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "3"
+    MARKETING_VERSION: "0.3.0"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 targets:
   MoodFlow:
     type: application
     platform: iOS
-    sources: [Native]
+    sources: [Native, Shared]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.moodflow.validation
@@ -23,13 +23,27 @@ targets:
   MoodFlowWatch:
     type: application
     platform: watchOS
-    sources: [Native]
+    sources: [Native, Shared]
+    dependencies:
+      - target: MoodFlowWatchFace
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.moodflow.validation.watchkitapp
         TARGETED_DEVICE_FAMILY: "4"
         INFOPLIST_FILE: Config/Watch.plist
-        CODE_SIGN_ENTITLEMENTS: Config/Health.entitlements
+        CODE_SIGN_ENTITLEMENTS: Config/WatchHealth.entitlements
+  MoodFlowWatchFace:
+    type: app-extension
+    platform: watchOS
+    sources: [WatchFace, Shared]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.moodflow.validation.watchkitapp.moodface
+        TARGETED_DEVICE_FAMILY: "4"
+        INFOPLIST_FILE: Config/WatchFace.plist
+        CODE_SIGN_ENTITLEMENTS: Config/MoodFace.entitlements
+        APPLICATION_EXTENSION_API_ONLY: YES
 schemes:
   MoodFlow:
     build:

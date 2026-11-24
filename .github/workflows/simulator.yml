@@ -6,6 +6,8 @@ on:
       - '.github/workflows/simulator.yml'
       - 'scripts/simulator.sh'
       - 'Native/**'
+      - 'Shared/**'
+      - 'WatchFace/**'
       - 'Config/**'
       - 'project.yml'
 permissions:
