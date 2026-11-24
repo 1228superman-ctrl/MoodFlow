@@ -91,8 +91,6 @@ echo "Booting simulator"
 with_timeout 170 xcrun simctl bootstatus "$udid" -b
 echo "Installing simulator build"
 with_timeout 120 xcrun simctl install "$udid" "$app"
-container=$(with_timeout 30 xcrun simctl get_app_container "$udid" "$bundle" data)
-journal="$container/Library/Application Support/MoodFlowValidation"
 
 take_screenshot() {
   if ! with_timeout 25 xcrun simctl io "$udid" screenshot "$root/$1"; then
@@ -102,6 +100,30 @@ take_screenshot() {
 
 echo "Launching the app"
 with_timeout 45 xcrun simctl launch "$udid" "$bundle"
+if ! container=$(with_timeout 15 xcrun simctl get_app_container "$udid" "$bundle" data); then
+  # CoreSimulator can time out on a data lookup after a successful installation.
+  container=$(python3 - "$udid" "$bundle" <<'PY'
+import plistlib
+import sys
+from pathlib import Path
+
+device, bundle = sys.argv[1:]
+root = Path.home() / "Library/Developer/CoreSimulator/Devices" / device / "data/Containers/Data/Application"
+matches = []
+for metadata in root.glob("*/.com.apple.mobile_container_manager.metadata.plist"):
+    try:
+        with metadata.open("rb") as stream:
+            if plistlib.load(stream).get("MCMMetadataIdentifier") == bundle:
+                matches.append(metadata.parent)
+    except (OSError, plistlib.InvalidFileException):
+        continue
+if len(matches) != 1:
+    sys.exit("Could not identify a unique simulator app data container")
+print(matches[0])
+PY
+  )
+fi
+journal="$container/Library/Application Support/MoodFlowValidation"
 sleep 3
 take_screenshot 01-launch.png
 with_timeout 30 xcrun simctl terminate "$udid" "$bundle"
