@@ -336,17 +336,27 @@ struct HistoryHome: View {
     private func eventRow(_ event: Entry) -> some View {
         let mood = probe.mood(for: event)
         let estimate = event.automaticMood
+        let estimatedTitle = estimate.map { "\($0.emoji) \($0.label)" }
+        let title = mood?.title ?? estimatedTitle ?? "待确认"
+        let time = event.time.formatted(date: .omitted, time: .shortened)
+        let summary: String
+        if let estimate {
+            summary = mood == nil ? "自动推测 · \(estimate.confidence)" : "已确认 · 原推测 \(estimate.label)"
+        } else {
+            summary = event.detail
+        }
+        let matchingClip = probe.entries.first { clip in
+            guard let duration = clip.recordingDuration else { return false }
+            return (0..<duration).contains(event.time.timeIntervalSince(clip.time))
+        }
         return VStack(alignment: .leading, spacing: 7) {
-            Text(mood?.title ?? estimate.map { $0.emoji + " " + $0.label } ?? "待确认").font(.headline)
-            Text(event.time.formatted(date: .omitted, time: .shortened) + " · " +
-                (estimate.map { mood == nil ? "自动推测 · " + $0.confidence : "已确认 · 原推测 " + $0.label } ?? event.detail))
-                .font(.subheadline)
+            Text(title).font(.headline)
+            Text("\(time) · \(summary)").font(.subheadline)
             if let bpm = event.physiology?.bpm { Text("心率 \(Int(bpm)) bpm").font(.caption).foregroundStyle(.secondary) }
-            if let recording = probe.entries.first(where: { clip in
-                guard let duration = clip.recordingDuration else { return false }
-                return (0..<duration).contains(event.time.timeIntervalSince(clip.time))
-            }) {
-                Button("播放当时的录音") { audio.play(recording, from: event.time.timeIntervalSince(recording.time)) }
+            if let matchingClip {
+                Button("播放当时的录音") {
+                    audio.play(matchingClip, from: event.time.timeIntervalSince(matchingClip.time))
+                }
             }
             DisclosureGroup("补充或纠正") {
                 MoodPicker { probe.feedback($0.rawValue, for: event) }
@@ -368,14 +378,7 @@ struct HistoryHome: View {
                     if let duration = entry.recordingDuration {
                         let end = entry.time.addingTimeInterval(duration)
                         Text("到 " + end.formatted(date: .omitted, time: .shortened)).font(.caption)
-                        let events = probe.moodEvents.filter { (entry.time..<end).contains($0.time) }
-                        ForEach(events) { event in
-                            let label = probe.mood(for: event)?.title ?? event.automaticMood?.label ?? "生理波动"
-                            let pulse = event.physiology?.bpm.map { " · \(Int($0)) bpm" } ?? ""
-                            Button(event.time.formatted(date: .omitted, time: .shortened) + " · " + label + pulse) {
-                                audio.play(entry, from: event.time.timeIntervalSince(entry.time))
-                            }.font(.caption)
-                        }
+                        recordingEvents(for: entry, endingAt: end)
                     }
                     HStack {
                         Button("播放") { audio.play(entry) }
@@ -388,6 +391,18 @@ struct HistoryHome: View {
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
                     .background(.teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
             }
+        }
+    }
+
+    private func recordingEvents(for clip: Entry, endingAt end: Date) -> some View {
+        let events = probe.moodEvents.filter { (clip.time..<end).contains($0.time) }
+        return ForEach(events) { event in
+            let label = probe.mood(for: event)?.title ?? event.automaticMood?.label ?? "生理波动"
+            let pulse = event.physiology?.bpm.map { " · \(Int($0)) bpm" } ?? ""
+            let time = event.time.formatted(date: .omitted, time: .shortened)
+            Button("\(time) · \(label)\(pulse)") {
+                audio.play(clip, from: event.time.timeIntervalSince(clip.time))
+            }.font(.caption)
         }
     }
 }
