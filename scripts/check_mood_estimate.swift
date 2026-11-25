@@ -107,6 +107,15 @@ enum EstimateChecks {
         precondition(MoodEstimate.notificationReason(alert, previous: nil, now: now) == nil)
         precondition(MoodEstimate.notificationReason(alert, previous: alert, now: now) != nil)
         precondition(MoodEstimate.notificationReason(alert, previous: nil, now: now.addingTimeInterval(360)) != nil)
+        var similar = test
+        similar.asleep = false; similar.bpm = 71; similar.delta = 2; similar.trendBPM = nil
+        similar.inMotion = false; similar.heartSampleInterval = 240
+        precondition(MoodEstimate.analyze(similar, history: confirmedHistory).label == "可能平静")
+        let correctedHistory = confirmedHistory.map { row in
+            row.kind == "情绪反馈" ? Entry(time: row.time, kind: row.kind, detail: "愉快", eventID: row.eventID) : row
+        }
+        precondition(MoodEstimate.analyze(similar, history: correctedHistory).label == "可能愉快")
+        precondition(MoodEstimate.analyze(similar, history: Array(correctedHistory.prefix(2))).label != "可能愉快")
         let sampleUUID = UUID()
         precondition(MoodEstimate.analysisID(sampleUUID) == MoodEstimate.analysisID(sampleUUID))
         print("PASS: stationary, rapid/gradual rise, falling trend, HRV, motion, missing context, delayed and duplicate alerts")

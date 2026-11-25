@@ -37,6 +37,8 @@ final class HealthProbe {
                 let received = Date()
                 Task { @MainActor in
                     defer { done() }
+                    UserDefaults.standard.set(received, forKey: "monitor-callback")
+                    if !Probe.shared.isActive { UserDefaults.standard.set(received, forKey: "monitor-background") }
                     let phase = Probe.shared.isActive ? "前台" : "非前台"
                     do {
                         if let error { throw error }
@@ -56,7 +58,11 @@ final class HealthProbe {
         Task { await register() }
     }
 
+    private var registering = false
     func register() async {
+        guard enabled, !registering else { return }
+        registering = true
+        defer { registering = false }
         for type in types {
             do {
                 try await store.enableBackgroundDelivery(for: type, frequency: .immediate)
@@ -70,7 +76,16 @@ final class HealthProbe {
 
     func readAll() async { await refreshMetrics() }
 
+    private var refreshing: Task<Void, Never>?
     private func refreshMetrics() async {
+        if let refreshing { await refreshing.value; return }
+        let task = Task { await readMetrics() }
+        refreshing = task
+        await task.value
+        refreshing = nil
+    }
+
+    private func readMetrics() async {
         guard enabled else { return }
         do {
             let now = Date()
@@ -109,7 +124,16 @@ final class HealthProbe {
                 now.timeIntervalSince($0.end) <= RecoverySleep.maximumAge
             })
             async let calories = activeCalories(since: recovery?.end, until: now)
-            let pulses = (try? await pulse) ?? []
+            let pulses: [HKQuantitySample]
+            do {
+                pulses = try await pulse
+                let same = pulses.first?.endDate == (UserDefaults.standard.object(forKey: "monitor-heart-date") as? Date)
+                UserDefaults.standard.set(pulses.isEmpty ? "查询完成，无可读心率" : (same ? "查询完成，暂无更新的可读心率" : "收到新的可读心率"), forKey: "monitor-heart-state")
+                UserDefaults.standard.set(pulses.first?.endDate, forKey: "monitor-heart-date")
+            } catch {
+                pulses = []
+                UserDefaults.standard.set("心率查询失败", forKey: "monitor-heart-state")
+            }
             let variabilitySamples = (try? await variability) ?? []
             let hrvValue = variabilitySamples.first.flatMap { sample in
                 sample.endDate >= start ? sample.quantity.doubleValue(for: milliseconds) : nil

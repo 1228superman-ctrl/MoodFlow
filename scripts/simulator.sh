@@ -175,3 +175,21 @@ if sys.argv[3] == "iOS":
     print("PASS: catch-up and regeneration created separate pending jobs, without simulated physiology or summaries")
 print("SCOPE: simulator only; launch arguments invoked handlers, and haptics were not measured")
 PY
+if [[ "$platform" == "watchOS" ]]; then
+  for pass in 1 2; do
+    with_timeout 30 xcrun simctl terminate "$udid" "$bundle"
+    with_timeout 45 xcrun simctl launch "$udid" "$bundle" --moodflow-ci-analyze
+    wait_for_entries 5
+    sleep 2
+  done
+  python3 - "$journal" <<'PY'
+import json, sys
+from pathlib import Path
+rows = [json.loads(f.read_bytes()) for f in Path(sys.argv[1]).glob("*.json")]
+autos = [row for row in rows if row.get("analysis")]
+assert len(autos) == 1 and autos[0]["analysis"]["label"] == "可能紧张"
+assert autos[0]["evaluatedAt"] - autos[0]["time"] >= 3500
+assert not any(row["kind"] == "主动提醒" for row in rows)
+print("PASS: delayed synthetic analysis persisted once across watch app relaunch")
+PY
+fi

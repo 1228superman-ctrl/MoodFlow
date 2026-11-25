@@ -15,6 +15,7 @@ enum MonitorActions {
             UNNotificationAction(identifier: "unsure", title: "暂无法确认")
         ]
         UNUserNotificationCenter.current().setNotificationCategories([
+            UNNotificationCategory(identifier: category + "-unknown", actions: Array(actions.dropFirst()), intentIdentifiers: []),
             UNNotificationCategory(identifier: category, actions: actions, intentIdentifiers: [])
         ])
     }
@@ -51,7 +52,7 @@ extension Probe {
         }
         guard let estimate = entry.analysis, last?.id != entry.id else { return }
         let content = UNMutableNotificationContent()
-        content.categoryIdentifier = MonitorActions.category
+        content.categoryIdentifier = MonitorActions.category + (estimate.label == "线索不足" ? "-unknown" : "")
         content.title = estimate.label == "线索不足" ? "身体状态有变化" : estimate.label
         content.body = estimate.confidence + " · " + (estimate.reason ?? "")
         content.sound = .default
@@ -96,15 +97,15 @@ struct MonitorStatus: View {
         let entries = probe.entries
         let today = entries.filter { Calendar.current.isDateInToday($0.evaluatedAt ?? $0.time) }
         let sample = entries.first { $0.analysis != nil }
-        let callback = entries.first { $0.kind == "观察回调" }
-        let background = entries.first { $0.kind == "观察回调" && $0.detail.hasPrefix("非前台") }
+        let callback = UserDefaults.standard.object(forKey: "monitor-callback") as? Date
+        let background = UserDefaults.standard.object(forKey: "monitor-background") as? Date
         List {
             Text(enabled ? "日常监测已开启" : "日常监测等待健康授权")
             Text("高频监测受限于系统采样。日常模式随可用样本更新。")
             Text("心率采样 · " + time(probe.physiology?.sampledAt))
-            Text(probe.physiology?.bpm == nil ? "暂无可读心率样本" : "已有可读心率")
-            Text("最近收到回调 · " + time(callback?.time))
-            Text("最近后台回调 · " + time(background?.time))
+            Text(UserDefaults.standard.string(forKey: "monitor-heart-state") ?? "尚未查询心率")
+            Text("最近收到回调 · " + time(callback))
+            Text("最近后台回调 · " + time(background))
             ForEach(["heartRate", "heartRateVariabilitySDNN", "sleepAnalysis"], id: \.self) { type in
                 let registration = entries.first { $0.kind.hasPrefix("后台注册") && $0.detail.lowercased().contains(type.lowercased()) && (type != "heartRate" || !$0.detail.contains("Variability")) }
                 Text(type + " · " + (registration?.kind ?? "尚无注册结果"))

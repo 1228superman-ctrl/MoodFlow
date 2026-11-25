@@ -24,6 +24,14 @@ enum MoodEstimate {
         if let learned = sampleSuggestion(for: p, entries: history, labels: feedbackLabels(history)) {
             return result(learned, confidence, "与你多次确认的相似生理状态一致", significant: elevated || changing)
         }
+        if let previous = history.first(where: { record in
+            guard record.analysis?.label == "可能紧张", let prior = record.physiology,
+                  let priorBPM = prior.bpm, abs(priorBPM-bpm) < 8, prior.inMotion == p.inMotion,
+                  let sampledAt = p.sampledAt, (0...7*86400).contains(sampledAt.timeIntervalSince(record.time)) else { return false }
+            return history.first { $0.kind == "情绪反馈" && $0.eventID == record.id }?.detail == "判断不正确"
+        }), previous.time <= (p.sampledAt ?? .distantPast), elevated {
+            return result(nil, "低把握", "你曾否定相似样本的推测，这次请确认实际感受", significant: true)
+        }
         if elevated, let ratio = p.hrvRelativeToUsual, ratio <= 0.8 {
             return result(.tense, confidence, "心率高于个人静止基线，近期 HRV 偏低", significant: true)
         }
@@ -180,8 +188,9 @@ enum MoodEstimate {
 
     private static func feedbackLabels(_ entries: [Entry]) -> [String: Mood] {
         var labels: [String: Mood] = [:]
+        var seen = Set<String>()
         for feedback in entries where feedback.kind == "情绪反馈" {
-            if let id = feedback.eventID, labels[id] == nil { labels[id] = Mood(rawValue: feedback.detail) }
+            if let id = feedback.eventID, seen.insert(id).inserted { labels[id] = Mood(rawValue: feedback.detail) }
         }
         return labels
     }

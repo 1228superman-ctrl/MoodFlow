@@ -93,7 +93,8 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
             let estimate = MoodEstimate.analyze(physiology, history: history)
             let elapsed = last.map { source.time.timeIntervalSince($0.time) } ?? .infinity
             let changed = last?.automaticMood?.label != estimate.label || last?.automaticMood?.confidence != estimate.confidence
-            let saveEvent = changed || elapsed >= 900 || elapsed < 0
+            let crossedFreshBoundary = source.time.timeIntervalSinceNow >= -300 && (last?.time.timeIntervalSinceNow ?? 0) < -300
+            let saveEvent = changed || elapsed >= 900 || elapsed < 0 || crossedFreshBoundary
             let entry = Entry(id: source.id, time: source.time, kind: saveEvent ? "自动推测" : "分析样本",
                 detail: estimate.reason ?? "线索不足", eventID: saveEvent ? nil : last?.id, physiology: physiology,
                 automaticMood: saveEvent ? estimate : nil, analysis: estimate, evaluatedAt: .now)
@@ -120,7 +121,7 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
                 var metadata = URLResourceValues()
                 metadata.isExcludedFromBackup = true
                 try? file.setResourceValues(metadata)
-            } else {
+            } else if MoodFaceSnapshot.read().map({ $0.expires > .now }) == true {
                 try FileManager.default.removeItem(at: file)
             }
             WidgetCenter.shared.reloadTimelines(ofKind: MoodFaceSnapshot.kind)
@@ -142,10 +143,10 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         let event = Entry(id: id, time: time, kind: "波动事件", detail: detail, physiology: physiology)
         guard add(event) else { return }
         #if os(iOS)
-        if isActive { activeEvent = event }
+        if isActive && detail.hasPrefix("模拟") { activeEvent = event }
         if event.detail.hasPrefix("模拟") { postPhoneNotice(for: event) }
         #else
-        if isActive {
+        if isActive && detail.hasPrefix("模拟") {
             activeEvent = event
             WKInterfaceDevice.current().play(.click)
         } else if noticesEnabled && detail.hasPrefix("模拟") {
@@ -171,7 +172,7 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     func receive(_ entry: Entry) {
         guard add(entry, sync: false) else { return }
-        if entry.kind == "波动事件", abs(entry.time.timeIntervalSinceNow) < 120, isActive {
+        if entry.kind == "波动事件", entry.detail.hasPrefix("模拟"), abs(entry.time.timeIntervalSinceNow) < 120, isActive {
             #if os(iOS)
             if mood(for: entry) == nil, activeEvent.map({ $0.time < entry.time }) ?? true { activeEvent = entry }
             #else
@@ -303,7 +304,7 @@ final class LaunchDelegate: NSObject, UIApplicationDelegate, UNUserNotificationC
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse) async {
-        if response.notification.request.content.categoryIdentifier == MonitorActions.category {
+        if response.notification.request.content.categoryIdentifier.hasPrefix(MonitorActions.category) {
             await MonitorActions.respond(response)
             return
         }
@@ -387,6 +388,16 @@ struct MoodFlowApp: App {
         guard !ranSimulation else { return }
         ranSimulation = true
         let arguments = ProcessInfo.processInfo.arguments
+        #if os(watchOS)
+        if arguments.contains("--moodflow-ci-analyze") {
+            let date = Date.now.addingTimeInterval(-3600)
+            let sample = Entry(id: "529BC90D-5555-43A8-B159-D6B90EF3937B", time: date, kind: "分析样本", detail: "模拟",
+                physiology: Physiology(bpm: 90, delta: 4, sampledAt: date, typicalStillBPM: 68,
+                    hrvRelativeToUsual: 0.7, inMotion: false, trendBPM: 15))
+            probe.analyzeSamples([sample, sample])
+            return
+        }
+        #endif
         let label: String
         if arguments.contains("--moodflow-ci-confirm") {
             label = "愉快"

@@ -105,10 +105,11 @@ struct WatchHome: View {
     @ViewBuilder private var display: some View {
         let sample = probe.physiology
         let mood = probe.lastMood
+        let freshMood = probe.displayedMood.flatMap { $0.expires > .now ? $0 : nil }
         switch template {
         case .mood:
-            stat(probe.displayedMood.map { $0.emoji + " " + $0.label } ?? mood?.title ?? "记录此刻",
-                probe.displayedMood?.status ?? "最近心情", icon: "face.smiling", color: .mint)
+            stat(freshMood.map { $0.emoji + " " + $0.label } ?? "等待新数据",
+                freshMood?.status ?? "暂无近期判断", icon: "face.smiling", color: .mint)
         case .energy:
             energyMeter(sample)
         case .stress:

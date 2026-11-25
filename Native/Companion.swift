@@ -10,6 +10,19 @@ final class Companion: NSObject, WCSessionDelegate {
         return directory
     }
 
+    private var retry: Task<Void, Never>?
+    private var retryDelay = 30
+    private func scheduleRetry() {
+        guard retry == nil else { return }
+        let delay = retryDelay
+        retryDelay = min(600, retryDelay * 2)
+        retry = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            self.retry = nil
+            self.flush()
+        }
+    }
+
     func activate() {
         #if !targetEnvironment(simulator)
         guard WCSession.isSupported() else { return }
@@ -137,12 +150,14 @@ final class Companion: NSObject, WCSessionDelegate {
     nonisolated func session(_ session: WCSession, didFinish userInfoTransfer: WCSessionUserInfoTransfer, error: Error?) {
         if error != nil {
             UserDefaults.standard.set("发送失败，保留待传记录 " + Date.now.formatted(), forKey: "monitor-sync")
+            Task { @MainActor in self.scheduleRetry() }
             return
         }
         UserDefaults.standard.set("发送成功 " + Date.now.formatted(), forKey: "monitor-sync")
         guard let id = userInfoTransfer.userInfo["entryID"] as? String,
               UUID(uuidString: id) != nil else { return }
         Task { @MainActor in
+            self.retryDelay = 30
             if let path = try? self.outboxURL().appendingPathComponent(id) {
                 try? FileManager.default.removeItem(at: path)
             }
