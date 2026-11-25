@@ -4,6 +4,7 @@ import WidgetKit
 private struct MoodFaceEntry: TimelineEntry {
     let date: Date
     let mood: MoodFaceSnapshot?
+    var expired = false
 }
 
 private struct MoodFaceProvider: TimelineProvider {
@@ -15,14 +16,15 @@ private struct MoodFaceProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<MoodFaceEntry>) -> Void) {
         let current = entry()
-        let expiry = current.mood.map { MoodFaceEntry(date: $0.expires, mood: nil) }
+        let expiry = current.mood.map { MoodFaceEntry(date: $0.expires, mood: nil, expired: true) }
         completion(Timeline(entries: [current] + (expiry.map { [$0] } ?? []), policy: .never))
     }
 
     private func entry() -> MoodFaceEntry {
         let now = Date()
-        let snapshot = MoodFaceSnapshot.read().flatMap { $0.expires > now ? $0 : nil }
-        return MoodFaceEntry(date: now, mood: snapshot)
+        let stored = MoodFaceSnapshot.read()
+        let snapshot = stored.flatMap { $0.expires > now ? $0 : nil }
+        return MoodFaceEntry(date: now, mood: snapshot, expired: stored != nil && snapshot == nil)
     }
 }
 
@@ -36,11 +38,11 @@ private struct MoodFaceView: View {
         Group {
             switch family {
             case .accessoryInline:
-                Text(mood.map { $0.emoji + " " + $0.label } ?? "心绪 · 等待数据")
+                Text(mood.map { $0.emoji + " " + $0.label } ?? (entry.expired ? "心绪 · 数据过期" : "心绪 · 等待数据"))
             case .accessoryRectangular:
                 HStack(spacing: 3) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(mood.map { $0.emoji + " " + $0.label } ?? "心绪 · 等待数据")
+                        Text(mood.map { $0.emoji + " " + $0.label } ?? (entry.expired ? "心绪 · 数据过期" : "心绪 · 等待数据"))
                             .font(.headline).lineLimit(1).minimumScaleFactor(0.72)
                         if let mood {
                             HStack(spacing: 4) {

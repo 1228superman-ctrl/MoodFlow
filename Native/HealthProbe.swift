@@ -10,6 +10,7 @@ final class HealthProbe {
     private let store = HKHealthStore()
     private let heart = HKQuantityType(.heartRate)
     private let hrv = HKQuantityType(.heartRateVariabilitySDNN)
+    private let resting = HKQuantityType(.restingHeartRate)
     private let sleep = HKCategoryType(.sleepAnalysis)
     private let activeEnergy = HKQuantityType(.activeEnergyBurned)
     private let bpm = HKUnit.count().unitDivided(by: .minute())
@@ -23,7 +24,7 @@ final class HealthProbe {
         guard HKHealthStore.isHealthDataAvailable() else {
             throw NSError(domain: "HealthKit unavailable", code: 1)
         }
-        try await store.requestAuthorization(toShare: [], read: Set((types + [activeEnergy]).map { $0 as HKObjectType }))
+        try await store.requestAuthorization(toShare: [], read: Set((types + [activeEnergy, resting]).map { $0 as HKObjectType }))
         enabled = true
         UserDefaults.standard.set(true, forKey: "health-enabled")
         installObservers()
@@ -52,6 +53,7 @@ final class HealthProbe {
             queries.append(query)
             store.execute(query)
         }
+        Task { await register() }
     }
 
     func register() async {
@@ -73,18 +75,22 @@ final class HealthProbe {
         do {
             let now = Date()
             let today = HKQuery.predicateForSamples(withStart: now.addingTimeInterval(-24 * 3600), end: now)
-            let week = HKQuery.predicateForSamples(withStart: now.addingTimeInterval(-7 * 86400), end: now, options: .strictEndDate)
+            
             let still = HKQuery.predicateForObjects(withMetadataKey: HKMetadataKeyHeartRateMotionContext,
                 allowedValues: [NSNumber(value: HKHeartRateMotionContext.sedentary.rawValue)])
-            async let pulse = quantities(heart, predicate: today, limit: 2)
-            async let variability = quantities(hrv, predicate: week, limit: 25)
+            async let pulse = quantities(heart, predicate: today, limit: HKObjectQueryNoLimit)
+            let month = HKQuery.predicateForSamples(withStart: now.addingTimeInterval(-28 * 86400), end: now)
+            #if os(watchOS)
+            async let restingPulse = quantities(resting, predicate: month, limit: 28)
+            #endif
+            async let variability = quantities(hrv, predicate: month, limit: 180)
             async let stillPulse = quantities(heart,
-                predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [week, still]), limit: 64)
+                predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [month, still]), limit: 1500)
             let sleepQuery = HKSampleQueryDescriptor(
                 predicates: [.categorySample(type: sleep, predicate: HKQuery.predicateForSamples(
                     withStart: now.addingTimeInterval(-48 * 3600), end: now))],
                 sortDescriptors: [SortDescriptor(\.startDate)])
-            let segments = try await sleepQuery.result(for: store).filter {
+            let segments = ((try? await sleepQuery.result(for: store)) ?? []).filter {
                 HKCategoryValueSleepAnalysis.allAsleepValues.contains(
                     HKCategoryValueSleepAnalysis(rawValue: $0.value) ?? .inBed)
             }
@@ -103,7 +109,7 @@ final class HealthProbe {
                 now.timeIntervalSince($0.end) <= RecoverySleep.maximumAge
             })
             async let calories = activeCalories(since: recovery?.end, until: now)
-            let pulses = try await pulse
+            let pulses = (try? await pulse) ?? []
             let variabilitySamples = (try? await variability) ?? []
             let hrvValue = variabilitySamples.first.flatMap { sample in
                 sample.endDate >= start ? sample.quantity.doubleValue(for: milliseconds) : nil
@@ -123,12 +129,52 @@ final class HealthProbe {
                 typicalStillBPM: typicalStillBPM,
                 hrvRelativeToUsual: newest.flatMap { recentHRVRatio(variabilitySamples, at: $0.endDate) },
                 inMotion: newest.flatMap(inMotion), recoverySleep: recovery, activeKilocalories: await calories)
+            #if os(watchOS)
+            let restHistory = (try? await restingPulse) ?? []
+            let recent = pulses.reversed()
+            var prior: [HKQuantitySample] = []
+            var analyses: [Entry] = []
+            let known = Set(Probe.shared.entries.filter { $0.analysis != nil }.map(\.id))
+            for sample in recent {
+                let date = sample.endDate
+                prior.removeAll { date.timeIntervalSince($0.endDate) > 1200 }
+                defer { prior.append(sample) }
+                guard !known.contains(MoodEstimate.analysisID(sample.uuid)), date <= now else { continue }
+                let value = sample.quantity.doubleValue(for: bpm)
+                let history = stillSamples.filter { date.timeIntervalSince($0.endDate) >= 1800 }
+                let hour = Calendar.current.component(.hour, from: date)
+                let withinPeriod = history.filter {
+                    let gap = abs(Calendar.current.component(.hour, from: $0.endDate) - hour)
+                    return min(gap, 24-gap) <= 2
+                }
+                let recentHistory = withinPeriod.filter { date.timeIntervalSince($0.endDate) < 7 * 86400 }
+                let pool = recentHistory.count >= 8 ? recentHistory : (withinPeriod.count >= 8 ? withinPeriod : history)
+                let baseline = median(pool, unit: bpm) ?? restHistory.first(where: { $0.endDate <= date })?.quantity.doubleValue(for: bpm)
+                let dispersion = baseline.flatMap { center -> Double? in
+                    let deviations = pool.map { abs($0.quantity.doubleValue(for: bpm) - center) }.sorted()
+                    return deviations.count >= 5 ? deviations[deviations.count / 2] : nil
+                }
+                let hrvHistory = variabilitySamples.filter { $0.endDate <= date }
+                let sleepBefore = intervals.filter { $0.end <= date && date.timeIntervalSince($0.end) <= RecoverySleep.maximumAge }
+                var physiology = Physiology(bpm: value, delta: prior.last.map { value - $0.quantity.doubleValue(for: bpm) },
+                    hrv: hrvHistory.first.flatMap { date.timeIntervalSince($0.endDate) <= 1800 ? $0.quantity.doubleValue(for: milliseconds) : nil },
+                    sampledAt: date, heartSampleInterval: prior.last.map { date.timeIntervalSince($0.endDate) },
+                    typicalStillBPM: baseline, hrvRelativeToUsual: recentHRVRatio(hrvHistory, at: date), inMotion: inMotion(sample))
+                if prior.count >= 2 {
+                    let older = prior.prefix(max(1, prior.count / 2)).map { $0.quantity.doubleValue(for: bpm) }
+                    physiology.trendBPM = (value + prior.last!.quantity.doubleValue(for: bpm)) / 2 - older.reduce(0,+) / Double(older.count)
+                }
+                physiology.stillSpread = dispersion
+                physiology.asleep = intervals.contains { $0.contains(date) }
+                physiology.recoverySleep = RecoverySleep.latest(in: sleepBefore)
+                analyses.append(Entry(id: MoodEstimate.analysisID(sample.uuid), time: date, kind: "分析样本", detail: "手表采样", physiology: physiology))
+            }
+            Probe.shared.analyzeSamples(analyses)
+            #endif
             if metrics != Probe.shared.physiology,
                metrics.bpm != nil || metrics.hrv != nil || metrics.sleepHours != nil || recovery != nil {
                 Probe.shared.add(Entry(kind: "生理数据", detail: "Apple 健康 · 最近 24 小时", physiology: metrics))
             }
-        } catch {
-            Probe.shared.add(Entry(kind: "查询失败", detail: "\((error as NSError).domain)/\((error as NSError).code)"))
         }
     }
 

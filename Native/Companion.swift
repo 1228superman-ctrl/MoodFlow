@@ -31,7 +31,7 @@ final class Companion: NSObject, WCSessionDelegate {
             }
             #endif
         } catch {
-            // Leave the original journal entry intact even if it could not be queued.
+            UserDefaults.standard.set("写入同步队列失败", forKey: "monitor-sync")
         }
         #endif
     }
@@ -58,7 +58,10 @@ final class Companion: NSObject, WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
-        Task { @MainActor in self.flush() }
+        Task { @MainActor in
+            if error != nil { UserDefaults.standard.set("会话激活失败", forKey: "monitor-sync") }
+            self.flush()
+        }
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
@@ -127,11 +130,17 @@ final class Companion: NSObject, WCSessionDelegate {
         Task { @MainActor in
             guard (try? Journal.contains(entry.id)) == false else { return }
             Probe.shared.receive(entry)
+            UserDefaults.standard.set("收到记录 " + Date.now.formatted(), forKey: "monitor-sync")
         }
     }
 
     nonisolated func session(_ session: WCSession, didFinish userInfoTransfer: WCSessionUserInfoTransfer, error: Error?) {
-        guard error == nil, let id = userInfoTransfer.userInfo["entryID"] as? String,
+        if error != nil {
+            UserDefaults.standard.set("发送失败，保留待传记录 " + Date.now.formatted(), forKey: "monitor-sync")
+            return
+        }
+        UserDefaults.standard.set("发送成功 " + Date.now.formatted(), forKey: "monitor-sync")
+        guard let id = userInfoTransfer.userInfo["entryID"] as? String,
               UUID(uuidString: id) != nil else { return }
         Task { @MainActor in
             if let path = try? self.outboxURL().appendingPathComponent(id) {

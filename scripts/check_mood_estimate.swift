@@ -86,6 +86,30 @@ enum EstimateChecks {
         let nap = DateInterval(start: now.addingTimeInterval(-2 * 3600), duration: 30 * 60)
         let recovery = RecoverySleep.latest(in: [nap, overlapping, night])
         precondition(recovery?.hours == 7 && recovery?.end == night.end)
+        var test = Physiology(bpm: 70, delta: 1, sampledAt: now, heartSampleInterval: 200, typicalStillBPM: 70, inMotion: false)
+        func estimate(_ p: Physiology) -> AutomaticMood { MoodEstimate.analyze(p, history: []) }
+        precondition(estimate(test).label == "可能平静")
+        test.bpm = 91; test.delta = 21
+        precondition(estimate(test).meaningful == true)
+        test.delta = 2; test.trendBPM = 13
+        precondition(estimate(test).meaningful == true)
+        test.hrvRelativeToUsual = 0.72
+        precondition(estimate(test).label == "可能紧张")
+        test.inMotion = true
+        precondition(estimate(test).label == "线索不足")
+        test.inMotion = nil
+        precondition(estimate(test).confidence == "低把握")
+        test.hrvRelativeToUsual = nil; test.trendBPM = -13; test.bpm = 60
+        precondition(estimate(test).meaningful == true)
+        test.asleep = true
+        precondition(estimate(test).confidence == "睡眠中")
+        let alert = Entry(time: now, kind: "自动推测", detail: "合成测试", analysis: AutomaticMood(label: "可能紧张", emoji: "", confidence: "低把握", meaningful: true))
+        precondition(MoodEstimate.notificationReason(alert, previous: nil, now: now) == nil)
+        precondition(MoodEstimate.notificationReason(alert, previous: alert, now: now) != nil)
+        precondition(MoodEstimate.notificationReason(alert, previous: nil, now: now.addingTimeInterval(360)) != nil)
+        let sampleUUID = UUID()
+        precondition(MoodEstimate.analysisID(sampleUUID) == MoodEstimate.analysisID(sampleUUID))
+        print("PASS: stationary, rapid/gradual rise, falling trend, HRV, motion, missing context, delayed and duplicate alerts")
         let baseline = Physiology(hrv: 40, recoverySleep: recovery)
         let afterActivity = Physiology(hrv: 40, recoverySleep: recovery, activeKilocalories: 400)
         precondition(baseline.energy(at: now) == 73 && afterActivity.energy(at: now) == 63)

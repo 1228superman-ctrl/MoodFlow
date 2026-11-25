@@ -10,6 +10,8 @@ struct Entry: Codable, Identifiable, Sendable {
     var position: EventPosition? = nil
     var recording: String? = nil
     var automaticMood: AutomaticMood? = nil
+    var analysis: AutomaticMood? = nil
+    var evaluatedAt: Date? = nil
     var recordingDuration: TimeInterval? = nil
 
     var isMoodEvent: Bool { kind == "波动事件" || kind == "手动心情" || automaticMood != nil }
@@ -24,6 +26,8 @@ struct AutomaticMood: Codable, Sendable {
     let label: String
     let emoji: String
     let confidence: String
+    var reason: String? = nil
+    var meaningful: Bool? = nil
 }
 
 struct Physiology: Codable, Sendable, Equatable {
@@ -36,6 +40,9 @@ struct Physiology: Codable, Sendable, Equatable {
     var typicalStillBPM: Double? = nil
     var hrvRelativeToUsual: Double? = nil
     var inMotion: Bool? = nil
+    var trendBPM: Double? = nil
+    var stillSpread: Double? = nil
+    var asleep: Bool? = nil
     var recoverySleep: RecoverySleep? = nil
     var activeKilocalories: Double? = nil
     var stress: Int? {

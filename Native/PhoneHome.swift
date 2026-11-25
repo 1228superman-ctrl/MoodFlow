@@ -135,6 +135,7 @@ struct PhoneHome: View {
 
     private var settings: some View {
         Form {
+            NavigationLink("监测状态") { MonitorStatus(probe: probe) }
             Section("事件") {
                 Toggle("事件定位", isOn: $probe.locationEnabled)
                     .onChange(of: probe.locationEnabled) { _, enabled in if enabled { probe.configureLocation() } }
@@ -357,6 +358,14 @@ struct HistoryHome: View {
                 Button("播放当时的录音") {
                     audio.play(matchingClip, from: event.time.timeIntervalSince(matchingClip.time))
                 }
+            }
+            if let reason = estimate?.reason { Text(reason).font(.caption) }
+            if let estimate {
+                Text("原始推测 · " + estimate.label + " · " + estimate.confidence).font(.caption)
+                ForEach(probe.entries.filter { $0.kind == "情绪反馈" && $0.eventID == event.id }) { feedback in
+                    Text(feedback.time.formatted() + " · " + feedback.detail).font(.caption)
+                }
+                EstimateFeedback(probe: probe, event: event)
             }
             DisclosureGroup("补充或纠正") {
                 MoodPicker { probe.feedback($0.rawValue, for: event) }

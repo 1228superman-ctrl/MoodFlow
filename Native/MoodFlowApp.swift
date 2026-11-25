@@ -79,47 +79,39 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func suggestion(for event: Entry) -> Mood? {
-        MoodEstimate.suggestion(for: event, entries: entries)
+        event.automaticMood.flatMap { Mood(rawValue: String($0.label.dropFirst(2))) } ?? MoodEstimate.suggestion(for: event, entries: entries)
     }
 
     #if os(watchOS)
-    private func recordAutomaticMood(_ snapshot: MoodFaceSnapshot) -> Entry? {
-        if let saved = entries.first(where: { $0.automaticMood != nil && $0.eventID == snapshot.eventID }) {
-            return saved
+    func analyzeSamples(_ samples: [Entry]) {
+        guard !samples.isEmpty else { return }
+        var last = entries.first { $0.automaticMood != nil }
+        var newestAlert: Entry?
+        let history = entries.filter { $0.isMoodEvent || $0.kind == "情绪反馈" }
+        for source in samples {
+            guard let physiology = source.physiology, (try? Journal.contains(source.id)) == false else { continue }
+            let estimate = MoodEstimate.analyze(physiology, history: history)
+            let elapsed = last.map { source.time.timeIntervalSince($0.time) } ?? .infinity
+            let changed = last?.automaticMood?.label != estimate.label || last?.automaticMood?.confidence != estimate.confidence
+            let saveEvent = changed || elapsed >= 900 || elapsed < 0
+            let entry = Entry(id: source.id, time: source.time, kind: saveEvent ? "自动推测" : "分析样本",
+                detail: estimate.reason ?? "线索不足", eventID: saveEvent ? nil : last?.id, physiology: physiology,
+                automaticMood: saveEvent ? estimate : nil, analysis: estimate, evaluatedAt: .now)
+            do {
+                try Journal.write(entry)
+                if saveEvent {
+                    last = entry
+                    Companion.shared.enqueue(entry)
+                    newestAlert = entry
+                } else if newestAlert?.analysis?.label != estimate.label { newestAlert = nil }
+            } catch { writeError = true; break }
         }
-        guard ["低把握", "个性推测"].contains(snapshot.status),
-              let source = entries.first(where: { $0.id == snapshot.eventID }) else { return nil }
-        if let latest = entries.first(where: { $0.automaticMood != nil }),
-           latest.automaticMood?.label == snapshot.label,
-           latest.automaticMood?.confidence == snapshot.status,
-           (0..<2700).contains(snapshot.date.timeIntervalSince(latest.time)) {
-            return latest
-        }
-        let entry = Entry(time: snapshot.date, kind: "自动推测", detail: "手表自动推测", eventID: source.id,
-            physiology: source.physiology,
-            automaticMood: AutomaticMood(label: snapshot.label, emoji: snapshot.emoji, confidence: snapshot.status))
-        do {
-            try Journal.write(entry)
-            entries.append(entry)
-            entries.sort { $0.time > $1.time }
-            Companion.shared.enqueue(entry)
-            return entry
-        } catch {
-            writeError = true
-            return nil
-        }
+        reload()
+        if let newestAlert { Task { await self.notifyEstimate(newestAlert) } }
     }
 
     private func updateWatchFace() {
-        var snapshot = MoodEstimate.watchFace(entries: entries)
-        if let estimate = snapshot, let record = recordAutomaticMood(estimate) {
-            let correction = entries.first {
-                $0.kind == "情绪反馈" && $0.eventID == record.id && $0.time >= estimate.date
-            }.flatMap { Mood(rawValue: $0.detail) }
-            snapshot = MoodFaceSnapshot(eventID: record.id, date: estimate.date, emoji: correction?.emoji ?? estimate.emoji,
-                label: correction?.rawValue ?? estimate.label, status: correction == nil ? estimate.status : "已确认",
-                appearance: correction?.appearance ?? estimate.appearance)
-        }
+        let snapshot = MoodEstimate.watchFace(entries: entries)
         if displayedMood != snapshot { displayedMood = snapshot }
         guard var file = MoodFaceSnapshot.sharedFile, snapshot != MoodFaceSnapshot.read() else { return }
         do {
@@ -151,12 +143,12 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard add(event) else { return }
         #if os(iOS)
         if isActive { activeEvent = event }
-        postPhoneNotice(for: event)
+        if event.detail.hasPrefix("模拟") { postPhoneNotice(for: event) }
         #else
         if isActive {
             activeEvent = event
             WKInterfaceDevice.current().play(.click)
-        } else if noticesEnabled {
+        } else if noticesEnabled && detail.hasPrefix("模拟") {
             let content = UNMutableNotificationContent()
             content.title = "有新的身体波动"
             content.body = "打开「心绪」记录此刻的感受。"
@@ -187,7 +179,7 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
             #endif
         }
         #if os(iOS)
-        postPhoneNotice(for: entry)
+        if entry.analysis != nil { Task { await self.notifyEstimate(entry) } }
         #endif
         restorePendingEvent()
     }
@@ -220,6 +212,13 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         if activeEvent == nil {
             activeEvent = moodEvents.first { $0.kind == "波动事件" && mood(for: $0) == nil }
         }
+    }
+
+    func selectEstimate(_ entry: Entry) {
+        activeEvent = entry
+        #if os(iOS)
+        phoneNoticeSelection = UUID()
+        #endif
     }
 
     func feedback(_ label: String, for event: Entry) {
@@ -289,8 +288,10 @@ final class LaunchDelegate: NSObject, UIApplicationDelegate, UNUserNotificationC
         didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         #if !MOODFLOW_SIM
+        Probe.shared.reload()
         HealthProbe.shared.installObservers()
         #endif
+        MonitorActions.install()
         Companion.shared.activate()
         return true
     }
@@ -302,6 +303,10 @@ final class LaunchDelegate: NSObject, UIApplicationDelegate, UNUserNotificationC
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse) async {
+        if response.notification.request.content.categoryIdentifier == MonitorActions.category {
+            await MonitorActions.respond(response)
+            return
+        }
         guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
         let identifier = response.notification.request.identifier
         await Probe.shared.openPhoneNotice(identifier)
@@ -309,11 +314,20 @@ final class LaunchDelegate: NSObject, UIApplicationDelegate, UNUserNotificationC
 }
 #else
 @MainActor
-final class LaunchDelegate: NSObject, WKApplicationDelegate {
+final class LaunchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationCenterDelegate {
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        await MonitorActions.respond(response)
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions { [.banner, .sound] }
+
     func applicationDidFinishLaunching() {
+        UNUserNotificationCenter.current().delegate = self
         #if !MOODFLOW_SIM
+        Probe.shared.reload()
         HealthProbe.shared.installObservers()
         #endif
+        MonitorActions.install()
         Companion.shared.activate()
     }
 }

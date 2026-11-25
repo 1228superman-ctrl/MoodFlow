@@ -1,6 +1,54 @@
 import Foundation
 
 enum MoodEstimate {
+    static func analysisID(_ sample: UUID) -> String {
+        var bytes = sample.uuid
+        bytes.0 ^= 0x80
+        return UUID(uuid: bytes).uuidString
+    }
+
+    static func analyze(_ p: Physiology, history: [Entry]) -> AutomaticMood {
+        func result(_ mood: Mood?, _ confidence: String, _ reason: String, significant: Bool = false) -> AutomaticMood {
+            AutomaticMood(label: mood.map { "可能" + $0.rawValue } ?? "线索不足", emoji: mood?.emoji ?? "♡",
+                confidence: confidence, reason: reason, meaningful: significant)
+        }
+        guard let bpm = p.bpm, bpm.isFinite, bpm > 0 else { return result(nil, "低把握", "缺少有效心率") }
+        if p.asleep == true { return result(nil, "睡眠中", "样本处于已记录的睡眠时段") }
+        if p.inMotion == true { return result(nil, "活动中", "活动期间心率变化可由运动引起") }
+        let difference = p.typicalStillBPM.map { bpm - $0 }
+        let threshold = max(10, (p.stillSpread ?? 5) * 2)
+        let swing = p.trendBPM ?? ((p.heartSampleInterval ?? .infinity) <= 600 ? p.delta : nil)
+        let elevated = (difference ?? 0) >= threshold
+        let changing = abs(swing ?? 0) >= 10
+        let confidence = p.inMotion == nil || p.hrvRelativeToUsual == nil ? "低把握" : "中等把握"
+        if let learned = sampleSuggestion(for: p, entries: history, labels: feedbackLabels(history)) {
+            return result(learned, confidence, "与你多次确认的相似生理状态一致", significant: elevated || changing)
+        }
+        if elevated, let ratio = p.hrvRelativeToUsual, ratio <= 0.8 {
+            return result(.tense, confidence, "心率高于个人静止基线，近期 HRV 偏低", significant: true)
+        }
+        if changing || elevated {
+            return result(nil, "低把握", "心率持续偏离或出现变化，情绪方向待确认", significant: true)
+        }
+        if let recovery = p.recoverySleep, recovery.hours < 5, let difference, difference < -threshold {
+            return result(.tired, "低把握", "最近睡眠较短，静止心率低于个人基线")
+        }
+        if let difference, abs(difference) < threshold, let swing, abs(swing) < 8 {
+            return result(.calm, "低把握", "近期心率平稳，接近个人静止基线")
+        }
+        return result(nil, "低把握", "缺少可比较的个人基线或趋势")
+    }
+
+    static func notificationReason(_ entry: Entry, previous: Entry?, now: Date) -> String? {
+        guard (0...300).contains(now.timeIntervalSince(entry.time)) else { return "延迟样本，仅补记历史" }
+        guard entry.analysis?.meaningful == true else { return "未达到变化提醒条件" }
+        if let previous {
+            let changed = previous.analysis?.label != entry.analysis?.label
+            if entry.time.timeIntervalSince(previous.time) < (changed ? 180 : 1800) { return "近期已提醒" }
+        }
+        return nil
+    }
+
     private static func isMeasuredVariation(_ entry: Entry) -> Bool {
         entry.kind == "波动事件" && !entry.detail.hasPrefix("模拟") && entry.physiology?.delta?.isFinite == true
     }
@@ -23,6 +71,17 @@ enum MoodEstimate {
     }
 
     static func watchFace(entries: [Entry], now: Date = .now) -> MoodFaceSnapshot? {
+        if let sample = entries.first(where: { $0.analysis != nil }),
+           let analysis = sample.analysis,
+           !entries.contains(where: { $0.kind == "手动心情" && $0.eventID == nil && $0.time > sample.time }) {
+            guard (0..<MoodFaceSnapshot.freshFor).contains(now.timeIntervalSince(sample.time)) else { return nil }
+            let id = sample.automaticMood == nil ? sample.eventID ?? sample.id : sample.id
+            let corrected = feedbackLabels(entries)[id]
+            let mood = corrected ?? Mood(rawValue: String(analysis.label.dropFirst(2)))
+            return MoodFaceSnapshot(eventID: id, date: sample.time, emoji: corrected?.emoji ?? analysis.emoji,
+                label: corrected?.rawValue ?? analysis.label, status: corrected == nil ? analysis.confidence : "已确认",
+                appearance: mood?.appearance)
+        }
         var latest: (entry: Entry, date: Date)?
         for entry in entries {
             let variation = isMeasuredVariation(entry)

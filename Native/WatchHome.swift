@@ -35,6 +35,7 @@ struct WatchHome: View {
                         if let suggested = probe.suggestion(for: event) {
                             Button("确认 " + suggested.title) { probe.feedback(suggested.rawValue, for: event) }
                         }
+                        if event.analysis != nil { EstimateFeedback(probe: probe, event: event) }
                         NavigationLink("选择或纠正心情") {
                             List(Mood.allCases) { mood in
                                 Button(mood.title) { probe.feedback(mood.rawValue, for: event) }
@@ -50,6 +51,7 @@ struct WatchHome: View {
                 Button("记录心情", systemImage: "plus.circle") { showMoodPicker(eventID: nil) }
                 NavigationLink("展示和权限") {
                     List {
+                        NavigationLink("监测状态") { MonitorStatus(probe: probe) }
                         Picker("展示模板", selection: $template) {
                             ForEach(WatchTemplate.allCases) { Text($0.rawValue).tag($0) }
                         }
