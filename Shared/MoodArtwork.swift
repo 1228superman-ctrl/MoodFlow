@@ -58,14 +58,21 @@ struct MoodArtwork: View {
             if !compact { context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(colors.base)) }
             switch theme {
             case .sunrise:
-                let diameter = width * (mood == .bright ? 0.67 : 0.53)
-                let horizon: CGFloat = mood == .subdued ? 0.47 : 0.32
-                let sun = CGRect(x: width * 0.51, y: height * (horizon - 0.17), width: diameter, height: diameter)
+                let layout: (sunX: CGFloat, sunY: CGFloat, sunSize: CGFloat, leftRidge: CGFloat, rightRidge: CGFloat, crest: CGFloat) = switch mood {
+                case .neutral: (0.84, 0.37, 0.35, 0.52, 0.62, 0.44)
+                case .calm: (0.77, 0.36, 0.52, 0.48, 0.59, 0.41)
+                case .bright: (0.76, 0.25, 0.68, 0.61, 0.48, 0.51)
+                case .tense: (0.92, 0.48, 0.47, 0.36, 0.66, 0.20)
+                case .subdued: (0.64, 0.54, 0.32, 0.64, 0.55, 0.59)
+                }
+                let diameter = min(width, height) * layout.sunSize
+                let center = point(layout.sunX, layout.sunY)
+                let sun = CGRect(x: center.x - diameter / 2, y: center.y - diameter / 2, width: diameter, height: diameter)
                 context.fill(Path(ellipseIn: sun), with: .linearGradient(Gradient(colors: [colors.accent, colors.middle]),
-                    startPoint: point(0.5, 0.15), endPoint: point(1, 0.56)))
+                    startPoint: CGPoint(x: sun.midX, y: sun.minY), endPoint: CGPoint(x: sun.midX, y: sun.maxY)))
                 let hills = Path { path in
-                    path.move(to: point(0, 0.44))
-                    path.addQuadCurve(to: point(1, 0.60), control: point(0.43, 0.30))
+                    path.move(to: point(0, layout.leftRidge))
+                    path.addQuadCurve(to: point(1, layout.rightRidge), control: point(0.44, layout.crest))
                     path.addLine(to: point(1, 0.74))
                     path.addQuadCurve(to: point(0, 0.69), control: point(0.57, 0.51))
                     path.closeSubpath()
@@ -80,33 +87,45 @@ struct MoodArtwork: View {
                 }
                 context.fill(slope, with: .color(colors.accent.opacity(0.82)))
             case .ink:
-                let intensity = mood == .tense ? 0.76 : mood == .subdued ? 0.52 : 0.34
-                for index in 0..<4 {
+                let wash: (reach: CGFloat, bend: CGFloat, fall: CGFloat, strokes: Int, opacity: Double) = switch mood {
+                case .neutral: (0.48, 0.23, 0.63, 2, 0.28)
+                case .calm: (0.70, 0.49, 0.80, 4, 0.42)
+                case .bright: (0.98, 0.34, 0.58, 3, 0.59)
+                case .tense: (0.98, 0.72, 0.86, 5, 0.86)
+                case .subdued: (0.44, 0.26, 1.14, 3, 0.60)
+                }
+                for index in 0..<wash.strokes {
                     let shift = CGFloat(index) * 0.065
                     let brush = Path { path in
                         path.move(to: point(-0.10, -0.04))
-                        path.addLine(to: point(0.77 - shift, -0.03))
+                        path.addLine(to: point(wash.reach - shift, -0.03))
                         path.addQuadCurve(to: point(0.29 + shift, 0.38), control: point(0.02, 0.30 + shift))
-                        path.addQuadCurve(to: point(0.04 + shift, 0.83), control: point(0.51 - shift, 0.57))
-                        path.addLine(to: point(-0.13, 0.92))
+                        path.addQuadCurve(to: point(0.04 + shift, wash.fall), control: point(wash.bend - shift, 0.57))
+                        path.addLine(to: point(-0.13, wash.fall + 0.10))
                         path.closeSubpath()
                     }
-                    context.fill(brush, with: .linearGradient(Gradient(colors: [colors.middle.opacity(intensity), .clear]),
+                    context.fill(brush, with: .linearGradient(Gradient(colors: [colors.middle.opacity(wash.opacity), .clear]),
                         startPoint: point(0, 0), endPoint: point(0.77, 0.72)))
                 }
                 let stamp = width * (compact ? 0.13 : 0.034)
                 context.fill(Path(CGRect(x: width * 0.79, y: height * 0.55, width: stamp, height: stamp)), with: .color(colors.accent))
             case .contour:
-                let count = compact ? 5 : 13
-                let spacing: CGFloat = mood == .tense ? 0.031 : mood == .subdued ? 0.068 : 0.048
+                let terrain: (centerX: CGFloat, centerY: CGFloat, spacing: CGFloat, ripple: Double, rings: Int) = switch mood {
+                case .neutral: (0.84, 0.42, 0.065, 0.10, 8)
+                case .calm: (0.76, 0.48, 0.048, 0.18, 11)
+                case .bright: (0.68, 0.30, 0.060, 0.22, 10)
+                case .tense: (0.91, 0.53, 0.030, 0.30, 16)
+                case .subdued: (0.58, 0.63, 0.082, 0.12, 6)
+                }
+                let count = compact ? (terrain.rings + 1) / 2 : terrain.rings
                 for index in 0..<count {
-                    let radius = 0.07 + CGFloat(index) * spacing
+                    let radius = 0.07 + CGFloat(index) * terrain.spacing * (compact ? 1.45 : 1)
                     let line = Path { path in
                         for step in 0..<36 {
                             let angle = Double(step) * .pi * 2 / 36
-                            let ripple = 1 + 0.18 * sin(3 * angle + Double(index) * 0.14)
-                            let vertex = point(0.76 + radius * CGFloat(cos(angle) * ripple),
-                                0.48 + radius * CGFloat(sin(angle) * ripple) * 0.88)
+                            let ripple = 1 + terrain.ripple * sin(3 * angle + Double(index) * 0.14)
+                            let vertex = point(terrain.centerX + radius * CGFloat(cos(angle) * ripple),
+                                terrain.centerY + radius * CGFloat(sin(angle) * ripple) * 0.88)
                             if step == 0 { path.move(to: vertex) } else { path.addLine(to: vertex) }
                         }
                         path.closeSubpath()
@@ -115,7 +134,8 @@ struct MoodArtwork: View {
                         lineWidth: compact ? 1 : 0.85)
                 }
                 let marker = width * (compact ? 0.09 : 0.03)
-                context.fill(Path(ellipseIn: CGRect(x: width * 0.76 - marker / 2, y: height * 0.48 - marker / 2,
+                let center = point(terrain.centerX, terrain.centerY)
+                context.fill(Path(ellipseIn: CGRect(x: center.x - marker / 2, y: center.y - marker / 2,
                     width: marker, height: marker)), with: .color(colors.accent))
             }
         }

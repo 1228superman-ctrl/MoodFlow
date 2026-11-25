@@ -1,0 +1,8 @@
+MoodFlow 0.4.0 physical-device upgrade, 2026-11-25
+PASS: Separate iPhone and Watch packages used the existing Apple signing identities. Watch and widget provisioning and their shared App Group passed preflight.
+PASS: iPhone accepted the upgrade and reported 0.4.0 with HealthKit and background delivery entitlements.
+PASS: The iPhone data container path changed. Pre-upgrade journal files were confirmed from file metadata only, and the user confirmed old entries are visible.
+PASS: Apple Watch accepted the upgrade after device trust was confirmed. It reported 0.4.0 with HealthKit and background delivery entitlements.
+PASS: The user received the iPhone test notification.
+OBSERVED: The user saw a small background color change after correcting the mood in the Watch app.
+PENDING: Notification from a real variation, locked-screen delivery, and refresh of the three styled system complications were not measured.
