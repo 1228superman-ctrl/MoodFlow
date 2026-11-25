@@ -52,6 +52,9 @@ final class Companion: NSObject, WCSessionDelegate {
             guard !queued.contains(id), let data = try? Data(contentsOf: file) else { continue }
             session.transferUserInfo(["entryID": id, "entry": data])
         }
+        #if os(watchOS)
+        flushRecordings(session)
+        #endif
     }
 
     nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
@@ -59,10 +62,60 @@ final class Companion: NSObject, WCSessionDelegate {
     }
 
     nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        #if os(watchOS)
+        if let id = userInfo["watchRecordingReceived"] as? String, UUID(uuidString: id) != nil {
+            Task { @MainActor in
+                if let url = Journal.audioURL(id + ".m4a"), FileManager.default.fileExists(atPath: url.path) {
+                    do { try FileManager.default.removeItem(at: url) }
+                    catch { return }
+                }
+                Journal.removeCaptureManifest(id, suffix: "ready")
+                WatchCapture.shared.updatePendingCount()
+            }
+            return
+        }
+        #endif
         receiveEntry(userInfo)
     }
 
+    #if os(watchOS)
+    private func flushRecordings(_ session: WCSession) {
+        let queued = Set(session.outstandingFileTransfers.compactMap { $0.file.metadata?["recordingID"] as? String })
+        for manifest in (try? Journal.captureManifests(suffix: "ready")) ?? [] {
+            let id = manifest.deletingPathExtension().lastPathComponent
+            guard !queued.contains(id), let data = try? Data(contentsOf: manifest),
+                  let clip = try? JSONDecoder().decode(Entry.self, from: data), clip.id == id,
+                  let name = clip.recording, let url = Journal.audioURL(name),
+                  FileManager.default.fileExists(atPath: url.path) else { continue }
+            session.transferFile(url, metadata: ["recordingID": id, "recording": data])
+        }
+    }
+    #endif
+
     #if os(iOS)
+    nonisolated func session(_ session: WCSession, didReceive file: WCSessionFile) {
+        guard let data = file.metadata?["recording"] as? Data,
+              let clip = try? JSONDecoder().decode(Entry.self, from: data),
+              clip.kind == "录音结束", clip.recording == clip.id + ".m4a",
+              let duration = clip.recordingDuration, duration > 0, duration <= 910,
+              let name = clip.recording, let destination = Journal.audioURL(name) else { return }
+        let manager = FileManager.default
+        do {
+            if !manager.fileExists(atPath: destination.path) {
+                do { try manager.moveItem(at: file.fileURL, to: destination) }
+                catch { if !manager.fileExists(atPath: destination.path) { throw error } }
+            }
+            try manager.setAttributes([.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: destination.path)
+            if try !Journal.contains(clip.id) { try Journal.write(clip) }
+        } catch {
+            // The watch keeps its copy until the file and its journal entry are safely stored here.
+            return
+        }
+        session.transferUserInfo(["watchRecordingReceived": clip.id])
+        Task { @MainActor in Probe.shared.reload() }
+    }
+
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         receiveEntry(message)
     }

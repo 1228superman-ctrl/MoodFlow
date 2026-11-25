@@ -14,6 +14,9 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published private(set) var entries: [Entry] = []
     @Published private(set) var writeError = false
     @Published private(set) var activeEvent: Entry?
+    #if os(watchOS)
+    @Published private(set) var displayedMood: MoodFaceSnapshot?
+    #endif
     #if os(iOS)
     @Published private(set) var phoneNoticeSelection: UUID?
     private let lastPhoneNoticeKey = "last-phone-variation-notice"
@@ -57,7 +60,14 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     var physiology: Physiology? {
-        entries.first { $0.kind == "生理数据" }?.physiology
+        guard var current = entries.first(where: { $0.kind == "生理数据" })?.physiology else { return nil }
+        if current.recoverySleep == nil, let previous = entries.lazy.compactMap(\.physiology).first(where: {
+            $0.recoverySleep.map { (0...RecoverySleep.maximumAge).contains(Date.now.timeIntervalSince($0.end)) } ?? false
+        }) {
+            current.recoverySleep = previous.recoverySleep
+            current.activeKilocalories = previous.activeKilocalories
+        }
+        return current
     }
 
     var moodEvents: [Entry] { entries.filter(\.isMoodEvent) }
@@ -73,8 +83,44 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     #if os(watchOS)
+    private func recordAutomaticMood(_ snapshot: MoodFaceSnapshot) -> Entry? {
+        if let saved = entries.first(where: { $0.automaticMood != nil && $0.eventID == snapshot.eventID }) {
+            return saved
+        }
+        guard ["低把握", "个性推测"].contains(snapshot.status),
+              let source = entries.first(where: { $0.id == snapshot.eventID }) else { return nil }
+        if let latest = entries.first(where: { $0.automaticMood != nil }),
+           latest.automaticMood?.label == snapshot.label,
+           latest.automaticMood?.confidence == snapshot.status,
+           (0..<2700).contains(snapshot.date.timeIntervalSince(latest.time)) {
+            return latest
+        }
+        let entry = Entry(time: snapshot.date, kind: "自动推测", detail: "手表自动推测", eventID: source.id,
+            physiology: source.physiology,
+            automaticMood: AutomaticMood(label: snapshot.label, emoji: snapshot.emoji, confidence: snapshot.status))
+        do {
+            try Journal.write(entry)
+            entries.append(entry)
+            entries.sort { $0.time > $1.time }
+            Companion.shared.enqueue(entry)
+            return entry
+        } catch {
+            writeError = true
+            return nil
+        }
+    }
+
     private func updateWatchFace() {
-        let snapshot = MoodEstimate.watchFace(entries: entries)
+        var snapshot = MoodEstimate.watchFace(entries: entries)
+        if let estimate = snapshot, let record = recordAutomaticMood(estimate) {
+            let correction = entries.first {
+                $0.kind == "情绪反馈" && $0.eventID == record.id && $0.time >= estimate.date
+            }.flatMap { Mood(rawValue: $0.detail) }
+            snapshot = MoodFaceSnapshot(eventID: record.id, date: estimate.date, emoji: correction?.emoji ?? estimate.emoji,
+                label: correction?.rawValue ?? estimate.label, status: correction == nil ? estimate.status : "已确认",
+                appearance: correction?.appearance ?? estimate.appearance)
+        }
+        if displayedMood != snapshot { displayedMood = snapshot }
         guard var file = MoodFaceSnapshot.sharedFile, snapshot != MoodFaceSnapshot.read() else { return }
         do {
             if let snapshot {
@@ -294,8 +340,11 @@ struct MoodFlowApp: App {
                     if probe.isActive {
                         probe.reload()
                         probe.restorePendingEvent()
+                        #if os(watchOS)
+                        WatchCapture.shared.recoverFinishedSegments()
+                        #endif
                         Companion.shared.flush()
-                        #if os(watchOS) && !MOODFLOW_SIM
+                        #if !MOODFLOW_SIM
                         Task { await HealthProbe.shared.readAll() }
                         #endif
                         #if targetEnvironment(simulator) && MOODFLOW_SIM

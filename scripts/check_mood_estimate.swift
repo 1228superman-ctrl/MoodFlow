@@ -73,7 +73,28 @@ enum EstimateChecks {
         let displayedReport = MoodEstimate.watchFace(entries: [selfReport, standalone, sample], now: now)
         precondition(displayedReport?.appearance == .bright && displayedReport?.eventID == standalone.id)
         precondition(MoodEstimate.watchFace(entries: [selfReport, standalone, sample], now: later) == nil)
+        let automatic = Entry(time: now, kind: "自动推测", detail: "手表自动推测", eventID: sample.id,
+            physiology: sample.physiology,
+            automaticMood: AutomaticMood(label: "可能平静", emoji: "😌", confidence: "低把握"))
+        let autoCorrection = Entry(time: now, kind: "情绪反馈", detail: "紧张", eventID: automatic.id)
+        precondition(automatic.isMoodEvent)
+        precondition(MoodEstimate.watchFace(entries: [autoCorrection, automatic, sample], now: now)?.label == "紧张")
         print("PASS: recent samples, calm/arousal/tension estimates, motion guard, expiry, personalized estimates and corrections")
+
+        let night = DateInterval(start: now.addingTimeInterval(-15 * 3600), duration: 7 * 3600)
+        let overlapping = DateInterval(start: night.start.addingTimeInterval(2 * 3600), duration: 3600)
+        let nap = DateInterval(start: now.addingTimeInterval(-2 * 3600), duration: 30 * 60)
+        let recovery = RecoverySleep.latest(in: [nap, overlapping, night])
+        precondition(recovery?.hours == 7 && recovery?.end == night.end)
+        let baseline = Physiology(hrv: 40, recoverySleep: recovery)
+        let afterActivity = Physiology(hrv: 40, recoverySleep: recovery, activeKilocalories: 400)
+        precondition(baseline.energy(at: now) == 73 && afterActivity.energy(at: now) == 63)
+        precondition(baseline.energy(at: now.addingTimeInterval(37 * 3600)) == nil)
+        precondition(Physiology(bpm: 70, hrv: 40).energy(at: now) == nil)
+        let oldData = Data(#"{"kind":"手动心情","detail":"自己记录","id":"05231DC0-F414-4938-A5AE-D909122D69F9","time":0,"physiology":{"sleepHours":7}}"#.utf8)
+        let oldEntry = try! JSONDecoder().decode(Entry.self, from: oldData)
+        precondition(oldEntry.isMoodEvent && oldEntry.automaticMood == nil && oldEntry.physiology?.sleepHours == 7)
+        print("PASS: sleep overlap, recovery estimate, activity impact and legacy journal compatibility")
 
         precondition(PhoneVariationNotice.canSend(detected, after: nil, now: now))
         precondition(!PhoneVariationNotice.canSend(detected, after: now, now: now))

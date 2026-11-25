@@ -50,6 +50,8 @@ enum MoodEstimate {
         guard let (event, date) = latest, let original = event.physiology else { return nil }
         let isVariation = isMeasuredVariation(event)
         let confirmed = labels[event.id] ?? entries.lazy
+            .filter { $0.automaticMood != nil && $0.eventID == event.id }
+            .compactMap { labels[$0.id] }.first ?? entries.lazy
             .filter { $0.kind == "手动心情" && $0.eventID == event.id }
             .compactMap { labels[$0.id] }.first
         if let mood = confirmed {
@@ -131,7 +133,7 @@ enum MoodEstimate {
     }
 }
 
-private extension Mood {
+extension Mood {
     var appearance: MoodAppearance {
         switch self {
         case .calm: .calm

@@ -94,10 +94,12 @@ struct PhoneHome: View {
         return VStack(alignment: .leading, spacing: 10) {
             Text("身体状态").font(.title3.weight(.semibold))
             HStack(spacing: 12) {
-                metric("身体电量", value: metrics?.energy.map(String.init), symbol: "battery.75percent", tint: .teal)
+                metric("身体电量", value: metrics?.energy().map(String.init), symbol: "battery.75percent", tint: .teal)
                 metric("压力评分", value: metrics?.stress.map(String.init), symbol: "waveform.path", tint: .orange)
             }
-            Text("分数范围 0–100，基于可用数据估算。").font(.footnote).foregroundStyle(.secondary)
+            Text(metrics?.energy() == nil ? "身体电量需要近 36 小时的睡着记录。" :
+                "身体电量以最近一段睡眠为起点，结合可用的 HRV、心率和活动能量估算。")
+                .font(.footnote).foregroundStyle(.secondary)
             HStack {
                 Label(metrics?.bpm.map { "\(Int($0)) bpm" } ?? "心率 —", systemImage: "heart")
                 Spacer()
@@ -271,11 +273,11 @@ struct HistoryHome: View {
                         Color.clear.frame(height: 46)
                     } else if let date = calendar.date(byAdding: .day, value: index - leading, to: start) {
                         let key = calendar.startOfDay(for: date)
-                        let mood = grouped[key]?.compactMap { probe.mood(for: $0) }.first
+                        let emoji = grouped[key]?.compactMap { probe.mood(for: $0)?.emoji ?? $0.automaticMood?.emoji }.first
                         Button { day = date } label: {
                             VStack(spacing: 1) {
                                 Text("\(index - leading + 1)").font(.subheadline.monospacedDigit())
-                                Text(mood?.emoji ?? (grouped[key] == nil ? " " : "•")).font(.caption)
+                                Text(emoji ?? (grouped[key] == nil ? " " : "•")).font(.caption)
                             }.frame(maxWidth: .infinity, minHeight: 46)
                                 .background(calendar.isDate(day, inSameDayAs: date) ? Color.teal.opacity(0.17) : .clear,
                                             in: RoundedRectangle(cornerRadius: 9))
@@ -332,10 +334,20 @@ struct HistoryHome: View {
     }
 
     private func eventRow(_ event: Entry) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(probe.mood(for: event)?.title ?? "待确认").font(.headline)
-            Text(event.time.formatted(date: .omitted, time: .shortened) + " · " + event.detail).font(.subheadline)
+        let mood = probe.mood(for: event)
+        let estimate = event.automaticMood
+        return VStack(alignment: .leading, spacing: 7) {
+            Text(mood?.title ?? estimate.map { $0.emoji + " " + $0.label } ?? "待确认").font(.headline)
+            Text(event.time.formatted(date: .omitted, time: .shortened) + " · " +
+                (estimate.map { mood == nil ? "自动推测 · " + $0.confidence : "已确认 · 原推测 " + $0.label } ?? event.detail))
+                .font(.subheadline)
             if let bpm = event.physiology?.bpm { Text("心率 \(Int(bpm)) bpm").font(.caption).foregroundStyle(.secondary) }
+            if let recording = probe.entries.first(where: { clip in
+                guard let duration = clip.recordingDuration else { return false }
+                return (0..<duration).contains(event.time.timeIntervalSince(clip.time))
+            }) {
+                Button("播放当时的录音") { audio.play(recording, from: event.time.timeIntervalSince(recording.time)) }
+            }
             DisclosureGroup("补充或纠正") {
                 MoodPicker { probe.feedback($0.rawValue, for: event) }
                 Button("为此事件录音") { onRecord(event) }
@@ -353,6 +365,18 @@ struct HistoryHome: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(entry.time.formatted(date: .abbreviated, time: .shortened)).font(.headline)
                     Text(entry.detail).foregroundStyle(.secondary)
+                    if let duration = entry.recordingDuration {
+                        let end = entry.time.addingTimeInterval(duration)
+                        Text("到 " + end.formatted(date: .omitted, time: .shortened)).font(.caption)
+                        let events = probe.moodEvents.filter { (entry.time..<end).contains($0.time) }
+                        ForEach(events) { event in
+                            let label = probe.mood(for: event)?.title ?? event.automaticMood?.label ?? "生理波动"
+                            let pulse = event.physiology?.bpm.map { " · \(Int($0)) bpm" } ?? ""
+                            Button(event.time.formatted(date: .omitted, time: .shortened) + " · " + label + pulse) {
+                                audio.play(entry, from: event.time.timeIntervalSince(entry.time))
+                            }.font(.caption)
+                        }
+                    }
                     HStack {
                         Button("播放") { audio.play(entry) }
                         Button("停止") { audio.stopPlayback() }

@@ -9,7 +9,7 @@ struct WatchMoodThemeScreen: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { timeline in
-            let mood = MoodEstimate.watchFace(entries: probe.entries, now: max(timeline.date, .now))
+            let mood = probe.displayedMood.flatMap { $0.expires > max(timeline.date, .now) ? $0 : nil }
             let alignment: HorizontalAlignment = theme == .ink ? .trailing : .leading
             VStack(alignment: alignment) {
                 Text(timeline.date, format: .dateTime.hour().minute())
@@ -57,7 +57,7 @@ struct WatchMoodChoices: View {
         let event = probe.entries.first { $0.id == eventID && ($0.isMoodEvent || $0.kind == "生理数据") }
         NavigationStack {
             List {
-                if let current = MoodEstimate.watchFace(entries: probe.entries), current.eventID == event?.id {
+                if let current = probe.displayedMood, current.eventID == event?.id, current.expires > .now {
                     Text("\(current.label) · \(current.status)").font(.footnote).foregroundStyle(.secondary)
                 }
                 ForEach(Mood.allCases) { mood in

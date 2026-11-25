@@ -54,12 +54,14 @@ final class AudioProbe: NSObject, ObservableObject, AVAudioRecorderDelegate {
 
     func stop() { recorder?.stop() }
 
-    func play(_ entry: Entry) {
+    func play(_ entry: Entry, from offset: TimeInterval = 0) {
         guard !recording, let filename = entry.audioName, let url = Journal.audioURL(filename) else { return }
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback)
             try AVAudioSession.sharedInstance().setActive(true)
             let next = try AVAudioPlayer(contentsOf: url)
+            next.currentTime = min(max(0, offset), next.duration)
+            player?.stop()
             guard next.play() else { throw CocoaError(.fileReadUnknown) }
             player = next
             message = "正在播放录音"

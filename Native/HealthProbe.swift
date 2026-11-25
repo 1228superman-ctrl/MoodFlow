@@ -11,6 +11,7 @@ final class HealthProbe {
     private let heart = HKQuantityType(.heartRate)
     private let hrv = HKQuantityType(.heartRateVariabilitySDNN)
     private let sleep = HKCategoryType(.sleepAnalysis)
+    private let activeEnergy = HKQuantityType(.activeEnergyBurned)
     private let bpm = HKUnit.count().unitDivided(by: .minute())
     private let milliseconds = HKUnit.secondUnit(with: .milli)
     private var queries: [HKObserverQuery] = []
@@ -22,7 +23,7 @@ final class HealthProbe {
         guard HKHealthStore.isHealthDataAvailable() else {
             throw NSError(domain: "HealthKit unavailable", code: 1)
         }
-        try await store.requestAuthorization(toShare: [], read: Set(types.map { $0 as HKObjectType }))
+        try await store.requestAuthorization(toShare: [], read: Set((types + [activeEnergy]).map { $0 as HKObjectType }))
         enabled = true
         UserDefaults.standard.set(true, forKey: "health-enabled")
         installObservers()
@@ -80,20 +81,28 @@ final class HealthProbe {
             async let stillPulse = quantities(heart,
                 predicate: NSCompoundPredicate(andPredicateWithSubpredicates: [week, still]), limit: 64)
             let sleepQuery = HKSampleQueryDescriptor(
-                predicates: [.categorySample(type: sleep, predicate: today)],
+                predicates: [.categorySample(type: sleep, predicate: HKQuery.predicateForSamples(
+                    withStart: now.addingTimeInterval(-48 * 3600), end: now))],
                 sortDescriptors: [SortDescriptor(\.startDate)])
             let segments = try await sleepQuery.result(for: store).filter {
                 HKCategoryValueSleepAnalysis.allAsleepValues.contains(
                     HKCategoryValueSleepAnalysis(rawValue: $0.value) ?? .inBed)
             }
-            var seconds = 0.0
             let start = now.addingTimeInterval(-24 * 3600)
-            var coveredThrough = start
-            for segment in segments {
-                let end = min(segment.endDate, now)
-                seconds += max(0, end.timeIntervalSince(max(coveredThrough, segment.startDate)))
-                coveredThrough = max(coveredThrough, end)
+            let intervals = segments.compactMap { sample -> DateInterval? in
+                let end = min(sample.endDate, now)
+                return sample.startDate < end ? DateInterval(start: sample.startDate, end: end) : nil
             }
+            var seconds = 0.0
+            var coveredThrough = start
+            for interval in intervals {
+                seconds += max(0, interval.end.timeIntervalSince(max(coveredThrough, interval.start)))
+                coveredThrough = max(coveredThrough, interval.end)
+            }
+            let recovery = RecoverySleep.latest(in: intervals.filter {
+                now.timeIntervalSince($0.end) <= RecoverySleep.maximumAge
+            })
+            async let calories = activeCalories(since: recovery?.end, until: now)
             let pulses = try await pulse
             let variabilitySamples = (try? await variability) ?? []
             let hrvValue = variabilitySamples.first.flatMap { sample in
@@ -108,18 +117,28 @@ final class HealthProbe {
             }
             let metrics = Physiology(bpm: latestBPM,
                 delta: latestBPM.flatMap { value in previous.map { value - $0.quantity.doubleValue(for: bpm) } },
-                hrv: hrvValue, sleepHours: segments.isEmpty ? nil : seconds / 3600,
+                hrv: hrvValue, sleepHours: seconds > 0 ? seconds / 3600 : nil,
                 sampledAt: newest?.endDate,
                 heartSampleInterval: newest.flatMap { sample in previous.map { sample.endDate.timeIntervalSince($0.endDate) } },
                 typicalStillBPM: typicalStillBPM,
                 hrvRelativeToUsual: newest.flatMap { recentHRVRatio(variabilitySamples, at: $0.endDate) },
-                inMotion: newest.flatMap(inMotion))
-            if metrics != Probe.shared.physiology, metrics.bpm != nil || metrics.hrv != nil || metrics.sleepHours != nil {
+                inMotion: newest.flatMap(inMotion), recoverySleep: recovery, activeKilocalories: await calories)
+            if metrics != Probe.shared.physiology,
+               metrics.bpm != nil || metrics.hrv != nil || metrics.sleepHours != nil || recovery != nil {
                 Probe.shared.add(Entry(kind: "生理数据", detail: "Apple 健康 · 最近 24 小时", physiology: metrics))
             }
         } catch {
             Probe.shared.add(Entry(kind: "查询失败", detail: "\((error as NSError).domain)/\((error as NSError).code)"))
         }
+    }
+
+    private func activeCalories(since start: Date?, until end: Date) async -> Double? {
+        guard let start, start < end else { return nil }
+        let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
+        let query = HKStatisticsQueryDescriptor(predicate: .quantitySample(type: activeEnergy, predicate: predicate),
+            options: .cumulativeSum)
+        let statistics = try? await query.result(for: store)
+        return statistics?.sumQuantity()?.doubleValue(for: .kilocalorie())
     }
 
     private func quantities(_ type: HKQuantityType, predicate: NSPredicate, limit: Int) async throws -> [HKQuantitySample] {

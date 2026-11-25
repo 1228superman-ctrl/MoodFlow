@@ -17,11 +17,18 @@ struct WatchHome: View {
     @State private var faceEventID: String?
     @State private var healthMessage: String?
     @State private var connecting = false
+    @StateObject private var capture = WatchCapture.shared
 
     var body: some View {
         NavigationStack {
             List {
                 display
+                NavigationLink {
+                    WatchRecordingScreen(capture: capture)
+                } label: {
+                    Label(capture.enabled ? "录音已开启" : "全天录音",
+                        systemImage: capture.isRecording ? "mic.fill" : "mic")
+                }
                 if let event = probe.activeEvent {
                     Section("发现波动") {
                         Text(event.detail).font(.caption2)
@@ -98,9 +105,10 @@ struct WatchHome: View {
         let mood = probe.lastMood
         switch template {
         case .mood:
-            stat(mood?.title ?? "记录此刻", "最近心情", icon: "face.smiling", color: .mint)
+            stat(probe.displayedMood.map { $0.emoji + " " + $0.label } ?? mood?.title ?? "记录此刻",
+                probe.displayedMood?.status ?? "最近心情", icon: "face.smiling", color: .mint)
         case .energy:
-            meter(sample?.energy, template.rawValue, color: .mint)
+            energyMeter(sample)
         case .stress:
             meter(sample?.stress, template.rawValue, color: .orange)
         case .pulse:
@@ -121,7 +129,7 @@ struct WatchHome: View {
             }
         case .compare:
             VStack(alignment: .leading) {
-                meter(sample?.energy, "身体电量", color: .mint)
+                energyMeter(sample)
                 meter(sample?.stress, "压力", color: .orange)
             }
         case .vital:
@@ -139,8 +147,15 @@ struct WatchHome: View {
             HStack {
                 Text(mood?.emoji ?? "—").font(.title2)
                 Spacer()
-                Text(sample?.energy.map { "\($0)%" } ?? "—").monospacedDigit()
+                Text(sample?.energy().map { "\($0)%" } ?? "缺少睡眠").monospacedDigit()
             }.accessibilityLabel("心情和身体电量")
+        }
+    }
+
+    private func energyMeter(_ sample: Physiology?) -> some View {
+        VStack(alignment: .leading) {
+            meter(sample?.energy(), "身体电量", color: .mint)
+            if sample?.energy() == nil { Text("未读到近 36 小时睡眠").font(.caption2) }
         }
     }
 
