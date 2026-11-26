@@ -4,7 +4,7 @@ import WatchConnectivity
 @MainActor
 final class Companion: NSObject, WCSessionDelegate {
     static let shared = Companion()
-    private func outboxURL() throws -> URL {
+    private nonisolated static func outboxURL() throws -> URL {
         let directory = try Journal.directory().appendingPathComponent("CompanionOutbox", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory
@@ -35,7 +35,7 @@ final class Companion: NSObject, WCSessionDelegate {
         #if !targetEnvironment(simulator)
         guard WCSession.isSupported(), let data = try? JSONEncoder().encode(entry) else { return }
         do {
-            try data.write(to: outboxURL().appendingPathComponent(entry.id), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+            try data.write(to: Self.outboxURL().appendingPathComponent(entry.id), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
             flush()
             #if os(watchOS)
             let session = WCSession.default
@@ -49,6 +49,29 @@ final class Companion: NSObject, WCSessionDelegate {
         #endif
     }
 
+    #if os(watchOS)
+    func enqueueSelection(_ entries: [Entry]) {
+        #if !targetEnvironment(simulator)
+        guard !entries.isEmpty, WCSession.isSupported() else { return }
+        Task {
+            do {
+                try await Task.detached(priority: .utility) {
+                    let directory = try Self.outboxURL()
+                    let encoder = JSONEncoder()
+                    for entry in entries {
+                        try encoder.encode(entry).write(to: directory.appendingPathComponent(entry.id),
+                            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                    }
+                }.value
+            } catch {
+                UserDefaults.standard.set("写入同步队列失败", forKey: "monitor-sync")
+            }
+            flush()
+        }
+        #endif
+    }
+    #endif
+
     func flush() {
         guard WCSession.isSupported(), WCSession.default.activationState == .activated else { return }
         let session = WCSession.default
@@ -58,7 +81,7 @@ final class Companion: NSObject, WCSessionDelegate {
         guard session.isCompanionAppInstalled else { return }
         #endif
         let queued = Set(session.outstandingUserInfoTransfers.compactMap { $0.userInfo["entryID"] as? String })
-        guard let directory = try? outboxURL(),
+        guard let directory = try? Self.outboxURL(),
               let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
         for file in files {
             let id = file.lastPathComponent
@@ -158,7 +181,7 @@ final class Companion: NSObject, WCSessionDelegate {
               UUID(uuidString: id) != nil else { return }
         Task { @MainActor in
             self.retryDelay = 30
-            if let path = try? self.outboxURL().appendingPathComponent(id) {
+            if let path = try? Self.outboxURL().appendingPathComponent(id) {
                 try? FileManager.default.removeItem(at: path)
             }
         }

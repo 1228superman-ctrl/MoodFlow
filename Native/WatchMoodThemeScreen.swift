@@ -54,7 +54,8 @@ struct WatchMoodChoices: View {
     let eventID: String?
     @State private var event: Entry?
     @State private var resolvedID: String?
-    @State private var saving = false
+    @State private var selectedMood: Mood?
+    @State private var saveFailed = false
 
     var body: some View {
         NavigationStack {
@@ -62,20 +63,26 @@ struct WatchMoodChoices: View {
                 if let current = probe.displayedMood, current.eventID == event?.id, current.expires > .now {
                     Text("\(current.label) · \(current.status)").font(.footnote).foregroundStyle(.secondary)
                 }
+                if saveFailed {
+                    Text("保存失败，请重试").font(.footnote).foregroundStyle(.secondary)
+                }
                 ForEach(Mood.allCases) { mood in
                     Button(mood.title) {
-                        if let event, event.isMoodEvent {
-                            probe.feedback(mood.rawValue, for: event)
-                            dismiss()
-                        } else {
-                            saving = true
-                            Task {
-                                await probe.loadHistoryIfNeeded()
-                                probe.manual(mood, basedOn: event)
+                        selectedMood = mood
+                        saveFailed = false
+                        Task {
+                            if await probe.saveWatchSelection(mood, basedOn: event) {
                                 dismiss()
+                            } else {
+                                selectedMood = nil
+                                saveFailed = true
                             }
                         }
-                    }.disabled(saving || (eventID != nil && resolvedID != eventID))
+                    }
+                    .disabled(selectedMood != nil || (eventID != nil && resolvedID != eventID))
+                    .overlay(alignment: .trailing) {
+                        if selectedMood == mood { ProgressView().controlSize(.mini) }
+                    }
                 }
             }.navigationTitle(event == nil ? "此刻心情" : "确认或纠正")
         }

@@ -203,7 +203,7 @@ for index in range(1600):
     entry = {"id": identifier, "time": 700000000 + index, "kind": "观察回调", "detail": "Synthetic history"}
     (journal / (identifier + ".json")).write_text(json.dumps(entry), encoding="utf-8")
 PY
-  with_timeout 45 xcrun simctl launch "$udid" "$bundle" --moodflow-ci-confirm
+  with_timeout 45 xcrun simctl launch "$udid" "$bundle" --moodflow-ci-select
   wait_for_entries 1607
   python3 - "$journal" <<'PY'
 import json, sys
@@ -211,9 +211,11 @@ from pathlib import Path
 rows = [json.loads(f.read_bytes()) for f in Path(sys.argv[1]).glob("*.json")]
 assert len(rows) == 1607
 assert sum(row["detail"] == "Synthetic history" for row in rows) == 1600
-events = {row["id"] for row in rows if row["kind"] == "波动事件"}
+events = {row["id"] for row in rows if row["kind"] in ("波动事件", "手动心情")}
 feedback = {row["eventID"] for row in rows if row["kind"] == "情绪反馈"}
 assert len(events) == 3 and events == feedback
-print("PASS: Watch relaunch and feedback preserve 1,600 existing synthetic journal entries")
+manual, = (row for row in rows if row["kind"] == "手动心情")
+assert any(row.get("eventID") == manual["id"] and row["detail"] == "平静" for row in rows)
+print("PASS: asynchronous Watch mood selection preserves 1,600 existing synthetic journal entries")
 PY
 fi

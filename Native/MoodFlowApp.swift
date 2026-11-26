@@ -61,11 +61,20 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func didPersist(_ entry: Entry) {
-        if let old = entries.firstIndex(where: { $0.id == entry.id }) {
-            entries.remove(at: old)
+        didPersist([entry])
+    }
+
+    private func didPersist(_ saved: [Entry]) {
+        guard !saved.isEmpty else { return }
+        var updated = entries
+        for entry in saved {
+            if let old = updated.firstIndex(where: { $0.id == entry.id }) {
+                updated.remove(at: old)
+            }
+            let index = updated.firstIndex { $0.time <= entry.time } ?? updated.endIndex
+            updated.insert(entry, at: index)
         }
-        let index = entries.firstIndex { $0.time <= entry.time } ?? entries.endIndex
-        entries.insert(entry, at: index)
+        entries = updated
         #if os(watchOS)
         updateWatchFace()
         #endif
@@ -111,6 +120,33 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     #if os(watchOS)
+    func saveWatchSelection(_ mood: Mood, basedOn sample: Entry?) async -> Bool {
+        if sample?.isMoodEvent != true { await loadHistoryIfNeeded() }
+        let existing = sample.flatMap { $0.isMoodEvent ? $0 : manualEvent(linkedTo: $0) }
+        let event = existing ?? makeManualEvent(basedOn: sample)
+        let feedback = Entry(kind: "情绪反馈", detail: mood.rawValue, eventID: event.id)
+        let pending = existing == nil ? [event, feedback] : [feedback]
+        let saved = await Task.detached(priority: .userInitiated) {
+            var written: [Entry] = []
+            for entry in pending {
+                do {
+                    try Journal.write(entry)
+                    written.append(entry)
+                } catch { break }
+            }
+            return written
+        }.value
+        didPersist(saved)
+        Companion.shared.enqueueSelection(saved)
+        let succeeded = saved.count == pending.count
+        writeError = !succeeded
+        if succeeded {
+            if activeEvent?.id == event.id { activeEvent = nil }
+            restorePendingEvent()
+        }
+        return succeeded
+    }
+
     func analyzeSamples(_ samples: [Entry]) {
         guard !samples.isEmpty else { return }
         var last = entries.first { $0.automaticMood != nil }
@@ -145,9 +181,19 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         if let newestAlert { Task { await self.notifyEstimate(newestAlert) } }
     }
 
+    private var watchFaceWrite: Task<Void, Never>?
+
     private func updateWatchFace() {
         let snapshot = MoodEstimate.watchFace(entries: entries)
         if displayedMood != snapshot { displayedMood = snapshot }
+        let previous = watchFaceWrite
+        watchFaceWrite = Task.detached(priority: .utility) {
+            await previous?.value
+            Self.writeWatchFace(snapshot)
+        }
+    }
+
+    private nonisolated static func writeWatchFace(_ snapshot: MoodFaceSnapshot?) {
         guard var file = MoodFaceSnapshot.sharedFile, snapshot != MoodFaceSnapshot.read() else { return }
         do {
             if let snapshot {
@@ -195,13 +241,21 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func manual(_ mood: Mood, basedOn sample: Entry? = nil) {
-        if let sample, let event = entries.first(where: { $0.kind == "手动心情" && $0.eventID == sample.id }) {
+        if let sample, let event = manualEvent(linkedTo: sample) {
             feedback(mood.rawValue, for: event)
             return
         }
-        let event = Entry(kind: "手动心情", detail: "自己记录", eventID: sample?.id,
-            physiology: sample?.physiology ?? physiology)
+        let event = makeManualEvent(basedOn: sample)
         if add(event) { feedback(mood.rawValue, for: event) }
+    }
+
+    private func manualEvent(linkedTo sample: Entry) -> Entry? {
+        entries.first { $0.kind == "手动心情" && $0.eventID == sample.id }
+    }
+
+    private func makeManualEvent(basedOn sample: Entry?) -> Entry {
+        Entry(kind: "手动心情", detail: "自己记录", eventID: sample?.id,
+            physiology: sample?.physiology ?? physiology)
     }
 
     func receive(_ entry: Entry) {
@@ -424,6 +478,10 @@ struct MoodFlowApp: App {
         ranSimulation = true
         let arguments = ProcessInfo.processInfo.arguments
         #if os(watchOS)
+        if arguments.contains("--moodflow-ci-select") {
+            Task { _ = await probe.saveWatchSelection(.calm, basedOn: nil) }
+            return
+        }
         if arguments.contains("--moodflow-ci-analyze") {
             let date = Date.now.addingTimeInterval(-3600)
             let sample = Entry(id: "529BC90D-5555-43A8-B159-D6B90EF3937B", time: date, kind: "分析样本", detail: "模拟",
