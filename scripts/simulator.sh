@@ -132,7 +132,7 @@ with_timeout 45 xcrun simctl launch "$udid" "$bundle" --moodflow-ci-confirm
 wait_for_entries() {
   local minimum="$1"
   for ((attempt = 1; attempt <= 30; attempt++)); do
-    if [[ -d "$journal" ]] && [[ $(find "$journal" -name '*.json' -type f | wc -l) -ge "$minimum" ]]; then
+    if [[ -d "$journal" ]] && [[ $(find "$journal" -maxdepth 1 -name '*.json' -type f | wc -l) -ge "$minimum" ]]; then
       return
     fi
     sleep 1
