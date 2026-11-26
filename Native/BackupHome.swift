@@ -34,8 +34,8 @@ private struct BackupManifest: Codable {
         guard values.isRegularFile == true, values.isSymbolicLink != true else { throw CocoaError(.fileReadCorruptFile) }
     }
 
-    func restore(from folder: URL) throws -> [Entry] {
-        let directory = try Journal.directory()
+    func restore(from folder: URL, into target: URL? = nil) throws -> [Entry] {
+        let directory = try target ?? Journal.directory()
         for name in audio {
             let source = folder.appendingPathComponent(name)
             try Self.installFile(directory: directory, name: name) { target in
@@ -78,11 +78,13 @@ private struct BackupDocument: FileDocument {
 
     init(configuration: ReadConfiguration) throws { wrapper = configuration.file }
 
-    init(snapshot: [Entry]) throws {
+    init(snapshot: [Entry], audioDirectory: URL? = nil) throws {
         let entries = snapshot.filter(BackupManifest.belongsInBackup)
         var files: [String: FileWrapper] = [:]
         for name in Set(entries.compactMap(\.audioName)) {
-            guard let url = Journal.audioURL(name), FileManager.default.fileExists(atPath: url.path) else { continue }
+            guard let local = Journal.audioURL(name) else { continue }
+            let url = audioDirectory?.appendingPathComponent(name) ?? local
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
             files[name] = try FileWrapper(url: url, options: [])
         }
         let manifest = BackupManifest(version: 1, entries: entries, audio: files.keys.sorted())
@@ -179,5 +181,32 @@ struct BackupHome: View {
             busy = false
         }
     }
+
+    #if targetEnvironment(simulator) && MOODFLOW_SIM
+    static func checkSyntheticRoundTrip() throws {
+        let manager = FileManager.default
+        let base = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let local = base.appendingPathComponent("source")
+        let restored = base.appendingPathComponent("restored")
+        try manager.createDirectory(at: local, withIntermediateDirectories: true)
+        defer { try? manager.removeItem(at: base) }
+        try manager.createDirectory(at: restored, withIntermediateDirectories: false)
+        let folder = base.appendingPathComponent("fixture.moodflowbackup")
+        let name = UUID().uuidString + ".m4a"
+        let clip = Entry(kind: "录音结束", detail: "模拟备份", recording: name)
+        let mood = Entry(kind: "手动心情", detail: "模拟备份")
+        let original = Data([23, 42, 14])
+        try original.write(to: local.appendingPathComponent(name))
+        let document = try BackupDocument(snapshot: [clip, mood], audioDirectory: local)
+        try document.wrapper.write(to: folder, options: .atomic, originalContentsURL: nil)
+        let manifest = try BackupManifest.read(from: folder)
+        guard manifest.entries.count == 2, manifest.audio == [name],
+              try manifest.restore(from: folder, into: restored).count == 2,
+              try Data(contentsOf: restored.appendingPathComponent(name)) == original,
+              try manifest.restore(from: folder, into: restored).isEmpty else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+    }
+    #endif
 }
 #endif

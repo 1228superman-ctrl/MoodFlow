@@ -32,6 +32,8 @@ struct WatchHome: View {
                 } else if lastEntryReceipt > 0 {
                     Label("iPhone 已收到记录", systemImage: "checkmark.icloud")
                         .font(.caption2)
+                    Text(Date(timeIntervalSince1970: lastEntryReceipt).formatted(date: .omitted, time: .shortened))
+                        .font(.caption2).foregroundStyle(.secondary)
                 }
                 NavigationLink {
                     WatchRecordingScreen(capture: capture)

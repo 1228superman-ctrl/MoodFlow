@@ -491,6 +491,17 @@ struct MoodFlowApp: App {
         guard !ranSimulation else { return }
         ranSimulation = true
         let arguments = ProcessInfo.processInfo.arguments
+        #if os(iOS)
+        if arguments.contains("--moodflow-ci-backup") {
+            do {
+                try BackupHome.checkSyntheticRoundTrip()
+                probe.add(Entry(kind: "模拟备份检查", detail: "passed"), sync: false)
+            } catch {
+                probe.add(Entry(kind: "模拟备份检查", detail: "failed"), sync: false)
+            }
+            return
+        }
+        #endif
         #if os(watchOS)
         if arguments.contains("--moodflow-ci-select") {
             Task { _ = await probe.saveWatchSelection(.calm, basedOn: nil) }

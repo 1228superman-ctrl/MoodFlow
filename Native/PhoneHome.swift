@@ -296,6 +296,10 @@ struct HistoryHome: View {
             }
             Text(day.formatted(date: .abbreviated, time: .omitted)).font(.headline)
             let entries = grouped[calendar.startOfDay(for: day)] ?? []
+            let confirmed = entries.filter { $0.isMoodEvent && probe.mood(for: $0) != nil }.count
+            if confirmed > 0 {
+                Text("已确认心情 \(confirmed) 条").font(.footnote).foregroundStyle(.secondary)
+            }
             if entries.isEmpty { Text("当天还没有记录").foregroundStyle(.secondary) }
             ForEach(entries) { event in
                 if event.audioName != nil { recordingRow(event) }

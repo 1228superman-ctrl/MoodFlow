@@ -218,4 +218,16 @@ manual, = (row for row in rows if row["kind"] == "手动心情")
 assert any(row.get("eventID") == manual["id"] and row["detail"] == "平静" for row in rows)
 print("PASS: asynchronous Watch mood selection preserves 1,600 existing synthetic journal entries")
 PY
+else
+  with_timeout 30 xcrun simctl terminate "$udid" "$bundle"
+  with_timeout 45 xcrun simctl launch "$udid" "$bundle" --moodflow-ci-backup
+  wait_for_entries 5
+  python3 - "$journal" <<'PY'
+import json, sys
+from pathlib import Path
+rows = [json.loads(f.read_bytes()) for f in Path(sys.argv[1]).glob("*.json")]
+result, = [row for row in rows if row["kind"] == "模拟备份检查"]
+assert result["detail"] == "passed"
+print("PASS: iPhone journal package restores emotion metadata and media bytes without duplicates")
+PY
 fi
