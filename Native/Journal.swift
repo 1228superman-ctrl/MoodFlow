@@ -135,6 +135,13 @@ enum Journal {
         return FileManager.default.fileExists(atPath: file.path)
     }
 
+    static func read(_ id: String) throws -> Entry? {
+        guard UUID(uuidString: id) != nil else { return nil }
+        let file = try directory().appendingPathComponent(id + ".json")
+        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+        return try JSONDecoder().decode(Entry.self, from: Data(contentsOf: file))
+    }
+
     static func recent() throws -> [Entry] {
         Array(try entries().prefix(25))
     }

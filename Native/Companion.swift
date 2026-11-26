@@ -129,7 +129,7 @@ final class Companion: NSObject, WCSessionDelegate {
             return
         }
         session.transferUserInfo(["watchRecordingReceived": clip.id])
-        Task { @MainActor in Probe.shared.reload() }
+        Task { @MainActor in Probe.shared.didPersist(clip) }
     }
 
     nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {

@@ -32,15 +32,43 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var locationTimeout: Task<Void, Never>?
     var isActive = false
 
-    func reload() {
-        do {
-            entries = try Journal.entries()
-            writeError = false
-            #if os(watchOS)
-            updateWatchFace()
-            #endif
+    private var loadedHistory = false
+    private var historyLoad: Task<Void, Never>?
+
+    func loadHistoryIfNeeded() async {
+        guard !loadedHistory else { return }
+        if let historyLoad { await historyLoad.value; return }
+        let task = Task { @MainActor in
+            defer { historyLoad = nil }
+            do {
+                let history = try await Task.detached(priority: .utility) { try Journal.entries() }.value
+                // A choice or synced entry can arrive while the disk snapshot is being read.
+                let liveIDs = Set(entries.map(\.id))
+                entries = (entries + history.filter { !liveIDs.contains($0.id) }).sorted { $0.time > $1.time }
+                loadedHistory = true
+                #if os(watchOS)
+                updateWatchFace()
+                #endif
+            } catch { writeError = true }
         }
-        catch { writeError = true }
+        historyLoad = task
+        await task.value
+    }
+
+    func entryForInteraction(_ id: String) async -> Entry? {
+        if let entry = entries.first(where: { $0.id == id }) { return entry }
+        return await Task.detached(priority: .userInitiated) { try? Journal.read(id) }.value
+    }
+
+    func didPersist(_ entry: Entry) {
+        if let old = entries.firstIndex(where: { $0.id == entry.id }) {
+            entries.remove(at: old)
+        }
+        let index = entries.firstIndex { $0.time <= entry.time } ?? entries.endIndex
+        entries.insert(entry, at: index)
+        #if os(watchOS)
+        updateWatchFace()
+        #endif
     }
 
     @discardableResult
@@ -48,7 +76,7 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         do {
             try Journal.write(entry)
             writeError = false
-            reload()
+            didPersist(entry)
             if sync && (entry.isMoodEvent || ["情绪反馈", "定位结果", "生理数据"].contains(entry.kind)) {
                 Companion.shared.enqueue(entry)
             }
@@ -87,6 +115,7 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard !samples.isEmpty else { return }
         var last = entries.first { $0.automaticMood != nil }
         var newestAlert: Entry?
+        var saved: [Entry] = []
         let history = entries.filter { $0.isMoodEvent || $0.kind == "情绪反馈" }
         for source in samples {
             guard let physiology = source.physiology, (try? Journal.contains(source.id)) == false else { continue }
@@ -100,6 +129,7 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
                 automaticMood: saveEvent ? estimate : nil, analysis: estimate, evaluatedAt: .now)
             do {
                 try Journal.write(entry)
+                saved.append(entry)
                 if saveEvent {
                     last = entry
                     Companion.shared.enqueue(entry)
@@ -107,7 +137,11 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
                 } else if newestAlert?.analysis?.label != estimate.label { newestAlert = nil }
             } catch { writeError = true; break }
         }
-        reload()
+        if !saved.isEmpty {
+            let savedIDs = Set(saved.map(\.id))
+            entries = (entries.filter { !savedIDs.contains($0.id) } + saved).sorted { $0.time > $1.time }
+            updateWatchFace()
+        }
         if let newestAlert { Task { await self.notifyEstimate(newestAlert) } }
     }
 
@@ -199,10 +233,10 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: event.id, content: content, trigger: nil))
     }
 
-    func openPhoneNotice(_ identifier: String) {
+    func openPhoneNotice(_ identifier: String) async {
         guard UUID(uuidString: identifier) != nil else { return }
-        reload()
-        if let event = moodEvents.first(where: { $0.id == identifier && $0.kind == "波动事件" }), mood(for: event) == nil {
+        await loadHistoryIfNeeded()
+        if let event = await entryForInteraction(identifier), event.kind == "波动事件", mood(for: event) == nil {
             activeEvent = event
         }
         phoneNoticeSelection = UUID()
@@ -289,7 +323,6 @@ final class LaunchDelegate: NSObject, UIApplicationDelegate, UNUserNotificationC
         didFinishLaunchingWithOptions options: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         #if !MOODFLOW_SIM
-        Probe.shared.reload()
         HealthProbe.shared.installObservers()
         #endif
         MonitorActions.install()
@@ -325,7 +358,6 @@ final class LaunchDelegate: NSObject, WKApplicationDelegate, UNUserNotificationC
     func applicationDidFinishLaunching() {
         UNUserNotificationCenter.current().delegate = self
         #if !MOODFLOW_SIM
-        Probe.shared.reload()
         HealthProbe.shared.installObservers()
         #endif
         MonitorActions.install()
@@ -353,18 +385,21 @@ struct MoodFlowApp: App {
                 .onChange(of: phase, initial: true) { _, value in
                     probe.isActive = value == .active
                     if probe.isActive {
-                        probe.reload()
-                        probe.restorePendingEvent()
-                        #if os(watchOS)
-                        WatchCapture.shared.recoverFinishedSegments()
-                        #endif
-                        Companion.shared.flush()
-                        #if !MOODFLOW_SIM
-                        Task { await HealthProbe.shared.readAll() }
-                        #endif
-                        #if targetEnvironment(simulator) && MOODFLOW_SIM
-                        runLaunchScenario()
-                        #endif
+                        Task {
+                            await probe.loadHistoryIfNeeded()
+                            guard probe.isActive else { return }
+                            probe.restorePendingEvent()
+                            #if os(watchOS)
+                            WatchCapture.shared.recoverFinishedSegments()
+                            #endif
+                            Companion.shared.flush()
+                            #if !MOODFLOW_SIM
+                            await HealthProbe.shared.readAll()
+                            #endif
+                            #if targetEnvironment(simulator) && MOODFLOW_SIM
+                            runLaunchScenario()
+                            #endif
+                        }
                     }
                 }
         }

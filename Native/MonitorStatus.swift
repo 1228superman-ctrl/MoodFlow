@@ -20,10 +20,9 @@ enum MonitorActions {
         ])
     }
 
-    static func respond(_ response: UNNotificationResponse) {
+    static func respond(_ response: UNNotificationResponse) async {
         let probe = Probe.shared
-        probe.reload()
-        guard let entry = probe.entries.first(where: { $0.id == response.notification.request.identifier }),
+        guard let entry = await probe.entryForInteraction(response.notification.request.identifier),
               let estimate = entry.analysis else { return }
         switch response.actionIdentifier {
         case "correct":

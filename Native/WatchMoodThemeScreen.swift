@@ -52,9 +52,11 @@ struct WatchMoodChoices: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var probe: Probe
     let eventID: String?
+    @State private var event: Entry?
+    @State private var resolvedID: String?
+    @State private var saving = false
 
     var body: some View {
-        let event = probe.entries.first { $0.id == eventID && ($0.isMoodEvent || $0.kind == "生理数据") }
         NavigationStack {
             List {
                 if let current = probe.displayedMood, current.eventID == event?.id, current.expires > .now {
@@ -64,13 +66,29 @@ struct WatchMoodChoices: View {
                     Button(mood.title) {
                         if let event, event.isMoodEvent {
                             probe.feedback(mood.rawValue, for: event)
+                            dismiss()
                         } else {
-                            probe.manual(mood, basedOn: event)
+                            saving = true
+                            Task {
+                                await probe.loadHistoryIfNeeded()
+                                probe.manual(mood, basedOn: event)
+                                dismiss()
+                            }
                         }
-                        dismiss()
-                    }
+                    }.disabled(saving || (eventID != nil && resolvedID != eventID))
                 }
             }.navigationTitle(event == nil ? "此刻心情" : "确认或纠正")
+        }
+        .task(id: eventID) {
+            guard let eventID else {
+                event = nil
+                resolvedID = nil
+                return
+            }
+            let stored = await probe.entryForInteraction(eventID)
+            guard !Task.isCancelled else { return }
+            event = stored.flatMap { $0.isMoodEvent || $0.kind == "生理数据" ? $0 : nil }
+            resolvedID = eventID
         }
     }
 }

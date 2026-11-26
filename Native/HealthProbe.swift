@@ -87,6 +87,7 @@ final class HealthProbe {
 
     private func readMetrics() async {
         guard enabled else { return }
+        await Probe.shared.loadHistoryIfNeeded()
         do {
             let now = Date()
             let today = HKQuery.predicateForSamples(withStart: now.addingTimeInterval(-24 * 3600), end: now)

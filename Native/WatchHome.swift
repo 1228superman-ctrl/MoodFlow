@@ -88,7 +88,6 @@ struct WatchHome: View {
         }
         .onOpenURL { url in
             guard url.scheme == "moodflow", url.host == "mood" else { return }
-            probe.reload()
             let eventID = url.lastPathComponent
             showMoodPicker(eventID: UUID(uuidString: eventID) == nil ? nil : eventID)
         }
