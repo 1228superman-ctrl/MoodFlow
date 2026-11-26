@@ -30,6 +30,7 @@ private struct MoodFaceProvider: TimelineProvider {
 
 private struct MoodFaceView: View {
     @Environment(\.widgetFamily) private var family
+    @Environment(\.widgetRenderingMode) private var renderingMode
     let entry: MoodFaceEntry
     let theme: MoodTheme?
 
@@ -40,25 +41,11 @@ private struct MoodFaceView: View {
             case .accessoryInline:
                 Text(mood.map { $0.emoji + " " + $0.label } ?? (entry.expired ? "心绪 · 数据过期" : "心绪 · 等待数据"))
             case .accessoryRectangular:
-                HStack(spacing: 3) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(mood.map { $0.emoji + " " + $0.label } ?? (entry.expired ? "心绪 · 数据过期" : "心绪 · 等待数据"))
-                            .font(.headline).lineLimit(1).minimumScaleFactor(0.72)
-                        if let mood {
-                            HStack(spacing: 4) {
-                                Text(mood.status)
-                                Text(mood.date, style: .relative)
-                            }.font(.caption2).lineLimit(1)
-                        } else {
-                            Text("轻点记录心情").font(.caption2)
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                    if let theme {
-                        MoodArtwork(theme: theme, mood: mood?.appearance ?? .neutral, compact: true)
-                            .frame(width: 38, height: 36)
-                            .clipShape(RoundedRectangle(cornerRadius: 5))
-                            .widgetAccentable()
-                    }
+                if let theme {
+                    themedRectangle(theme)
+                } else {
+                    rectangularText(alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             case .accessoryCorner:
                 symbol(mood).widgetLabel { Text(mood?.label ?? "心绪") }
@@ -76,6 +63,57 @@ private struct MoodFaceView: View {
         .privacySensitive()
         .widgetURL(mood?.link ?? MoodFaceSnapshot.recordLink)
         .containerBackground(.clear, for: .widget)
+    }
+
+    private func rectangularText(alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 2) {
+            Text(entry.mood.map { $0.emoji + " " + $0.label } ?? (entry.expired ? "心绪 · 数据过期" : "心绪 · 等待数据"))
+                .font(.headline).lineLimit(1).minimumScaleFactor(0.72)
+            if let mood = entry.mood {
+                HStack(spacing: 4) {
+                    Text(mood.status)
+                    Text(mood.date, style: .relative)
+                }.font(.caption2).lineLimit(1)
+            } else {
+                Text("轻点记录心情").font(.caption2)
+            }
+        }
+    }
+
+    private func themedRectangle(_ theme: MoodTheme) -> some View {
+        let appearance = entry.mood?.appearance ?? .neutral
+        let fullColor = renderingMode == .fullColor
+        let textOnRight = theme == .ink
+        let base = theme.colors(for: appearance).base
+
+        return rectangularText(alignment: textOnRight ? .trailing : .leading)
+            .foregroundStyle(fullColor ? theme.foreground : Color.primary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: textOnRight ? .trailing : .leading)
+            .background {
+                ZStack {
+                    if fullColor {
+                        MoodArtwork(theme: theme, mood: appearance)
+                        LinearGradient(
+                            stops: [
+                                .init(color: base, location: 0),
+                                .init(color: base.opacity(0.92), location: 0.30),
+                                .init(color: base.opacity(0.60), location: 0.55),
+                                .init(color: .clear, location: 0.83)
+                            ],
+                            startPoint: textOnRight ? .trailing : .leading,
+                            endPoint: textOnRight ? .leading : .trailing
+                        )
+                    } else {
+                        AccessoryWidgetBackground()
+                        MoodArtwork(theme: theme, mood: appearance, compact: true)
+                            .opacity(0.35)
+                            .widgetAccentable()
+                    }
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 7))
     }
 
     @ViewBuilder private func symbol(_ mood: MoodFaceSnapshot?) -> some View {

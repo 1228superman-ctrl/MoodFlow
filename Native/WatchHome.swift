@@ -64,7 +64,7 @@ struct WatchHome: View {
                 NavigationLink {
                     WatchMoodThemeScreen(probe: probe, theme: artTheme)
                 } label: {
-                    Label("动态主题", systemImage: "paintpalette")
+                    Label("主题预览", systemImage: "paintpalette")
                 }
                 Button("记录心情", systemImage: "plus.circle") { showMoodPicker(eventID: nil) }
                 NavigationLink("展示和权限") {
@@ -73,7 +73,7 @@ struct WatchHome: View {
                         Picker("展示模板", selection: $template) {
                             ForEach(WatchTemplate.allCases) { Text($0.rawValue).tag($0) }
                         }
-                        Picker("动态主题", selection: $artTheme) {
+                        Picker("预览主题", selection: $artTheme) {
                             ForEach(MoodTheme.allCases) { Text($0.title).tag($0) }
                         }
                         Toggle("波动提醒", isOn: $probe.noticesEnabled)
