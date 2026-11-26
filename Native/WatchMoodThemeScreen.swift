@@ -1,5 +1,6 @@
 #if os(watchOS)
 import SwiftUI
+import WatchKit
 
 struct WatchMoodThemeScreen: View {
     @ObservedObject var probe: Probe
@@ -72,6 +73,7 @@ struct WatchMoodChoices: View {
                         saveFailed = false
                         Task {
                             if await probe.saveWatchSelection(mood, basedOn: event) {
+                                WKInterfaceDevice.current().play(.success)
                                 dismiss()
                             } else {
                                 selectedMood = nil

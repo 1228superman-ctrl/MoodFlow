@@ -211,6 +211,7 @@ final class WatchCapture: NSObject, ObservableObject, AVAudioRecorderDelegate {
 struct WatchRecordingScreen: View {
     @ObservedObject var capture: WatchCapture
     @State private var confirming = false
+    @AppStorage("monitor-watch-audio-receipt") private var lastReceipt = 0.0
 
     var body: some View {
         List {
@@ -227,7 +228,16 @@ struct WatchRecordingScreen: View {
                 Text("停止前持续录音。每 15 分钟保存一段并同步到配对 iPhone。")
                     .font(.footnote)
             }
-            if capture.pendingCount > 0 { Text("\(capture.pendingCount) 段待同步").font(.footnote) }
+            if capture.pendingCount > 0 {
+                Text("\(capture.pendingCount) 段已保存在手表，等待同步").font(.footnote)
+                Button("重试同步") { Companion.shared.retryNow() }
+            }
+            if lastReceipt > 0 {
+                Text("iPhone 最近收到录音")
+                    .font(.footnote)
+                Text(Date(timeIntervalSince1970: lastReceipt).formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2)
+            }
             if let message = capture.message { Text(message).font(.footnote) }
         }
         .navigationTitle("全天录音")

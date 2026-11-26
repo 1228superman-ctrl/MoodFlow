@@ -64,6 +64,18 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         didPersist([entry])
     }
 
+    #if os(iOS)
+    func didRestoreBackup(_ entries: [Entry]) {
+        didPersist(entries)
+    }
+
+    func refreshRestoredHistory() async {
+        await historyLoad?.value
+        loadedHistory = false
+        await loadHistoryIfNeeded()
+    }
+    #endif
+
     private func didPersist(_ saved: [Entry]) {
         guard !saved.isEmpty else { return }
         var updated = entries
@@ -258,8 +270,9 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
             physiology: sample?.physiology ?? physiology)
     }
 
-    func receive(_ entry: Entry) {
-        guard add(entry, sync: false) else { return }
+    @discardableResult
+    func receive(_ entry: Entry) -> Bool {
+        guard add(entry, sync: false) else { return false }
         if entry.kind == "波动事件", entry.detail.hasPrefix("模拟"), abs(entry.time.timeIntervalSinceNow) < 120, isActive {
             #if os(iOS)
             if mood(for: entry) == nil, activeEvent.map({ $0.time < entry.time }) ?? true { activeEvent = entry }
@@ -271,6 +284,7 @@ final class Probe: NSObject, ObservableObject, CLLocationManagerDelegate {
         if entry.analysis != nil { Task { await self.notifyEstimate(entry) } }
         #endif
         restorePendingEvent()
+        return true
     }
 
     #if os(iOS)

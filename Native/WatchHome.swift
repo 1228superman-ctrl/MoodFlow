@@ -18,16 +18,32 @@ struct WatchHome: View {
     @State private var healthMessage: String?
     @State private var connecting = false
     @StateObject private var capture = WatchCapture.shared
+    @StateObject private var companion = Companion.shared
+    @AppStorage("monitor-watch-entry-receipt") private var lastEntryReceipt = 0.0
 
     var body: some View {
         NavigationStack {
             List {
                 display
+                if companion.pendingEntries > 0 {
+                    Label("手表已保存 · \(companion.pendingEntries) 条待同步", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.caption2)
+                    Button("重试同步") { companion.retryNow() }.font(.caption2)
+                } else if lastEntryReceipt > 0 {
+                    Label("iPhone 已收到记录", systemImage: "checkmark.icloud")
+                        .font(.caption2)
+                }
                 NavigationLink {
                     WatchRecordingScreen(capture: capture)
                 } label: {
-                    Label(capture.enabled ? "录音已开启" : "全天录音",
-                        systemImage: capture.isRecording ? "mic.fill" : "mic")
+                    VStack(alignment: .leading) {
+                        Label(capture.isRecording ? "正在录音" : (capture.enabled ? "录音已暂停" : "全天录音"),
+                            systemImage: capture.isRecording ? "mic.fill" : "mic")
+                        if capture.isRecording, let start = capture.startedAt {
+                            Text(start, style: .timer).font(.caption2.monospacedDigit())
+                        }
+                        if capture.pendingCount > 0 { Text("\(capture.pendingCount) 段待同步").font(.caption2) }
+                    }
                 }
                 if let event = probe.activeEvent {
                     Section("发现波动") {

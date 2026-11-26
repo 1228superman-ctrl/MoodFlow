@@ -11,6 +11,15 @@
   <key>UILaunchScreen</key><dict/>
   <key>UIFileSharingEnabled</key><true/>
   <key>LSSupportsOpeningDocumentsInPlace</key><true/>
+  <key>UTExportedTypeDeclarations</key>
+  <array><dict>
+    <key>UTTypeIdentifier</key><string>org.moodflow.journal-backup</string>
+    <key>UTTypeDescription</key><string>心绪备份</string>
+    <key>UTTypeConformsTo</key><array><string>com.apple.package</string><string>public.content</string></array>
+    <key>UTTypeTagSpecification</key><dict>
+      <key>public.filename-extension</key><array><string>moodflowbackup</string></array>
+    </dict>
+  </dict></array>
   <key>UIBackgroundModes</key><array><string>audio</string><string>fetch</string></array>
   <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>org.moodflow.validation.summary</string></array>
   <key>NSHealthShareUsageDescription</key><string>读取心率、HRV、睡眠及活动能量，用于身体状态及波动记录。</string>

@@ -136,6 +136,7 @@ struct PhoneHome: View {
     private var settings: some View {
         Form {
             NavigationLink("监测状态") { MonitorStatus(probe: probe) }
+            NavigationLink("备份与恢复") { BackupHome(probe: probe) }
             Section("事件") {
                 Toggle("事件定位", isOn: $probe.locationEnabled)
                     .onChange(of: probe.locationEnabled) { _, enabled in if enabled { probe.configureLocation() } }
@@ -232,11 +233,17 @@ struct HistoryHome: View {
     @State private var month = Date.now
     @State private var day = Date.now
     @State private var mapped: Entry?
+    @AppStorage("monitor-phone-last-receipt") private var lastReceipt = 0.0
     private let calendar = Calendar.current
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if lastReceipt > 0 {
+                    Text("最近收到手表记录 · " + Date(timeIntervalSince1970: lastReceipt)
+                        .formatted(date: .abbreviated, time: .shortened))
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Picker("回顾", selection: $tab) {
                     Text("日历").tag("日历")
                     Text("地图").tag("地图")
@@ -255,7 +262,8 @@ struct HistoryHome: View {
         let start = calendar.dateInterval(of: .month, for: month)?.start ?? month
         let days = calendar.range(of: .day, in: .month, for: start)?.count ?? 0
         let leading = (calendar.component(.weekday, from: start) - calendar.firstWeekday + 7) % 7
-        let grouped = Dictionary(grouping: probe.moodEvents) { calendar.startOfDay(for: $0.time) }
+        let timeline = probe.entries.filter { $0.isMoodEvent || $0.audioName != nil }
+        let grouped = Dictionary(grouping: timeline) { calendar.startOfDay(for: $0.time) }
         let weekdays = ["日", "一", "二", "三", "四", "五", "六"]
         return VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -289,7 +297,10 @@ struct HistoryHome: View {
             Text(day.formatted(date: .abbreviated, time: .omitted)).font(.headline)
             let entries = grouped[calendar.startOfDay(for: day)] ?? []
             if entries.isEmpty { Text("当天还没有记录").foregroundStyle(.secondary) }
-            ForEach(entries) { event in eventRow(event) }
+            ForEach(entries) { event in
+                if event.audioName != nil { recordingRow(event) }
+                else { eventRow(event) }
+            }
         }
     }
 
@@ -342,11 +353,13 @@ struct HistoryHome: View {
         let time = event.time.formatted(date: .omitted, time: .shortened)
         let summary: String
         if let estimate {
-            summary = mood == nil ? "自动推测 · \(estimate.confidence)" : "已确认 · 原推测 \(estimate.label)"
+            summary = mood == nil ? "自动推测待确认 · \(estimate.confidence)" : "已确认 · 原推测 \(estimate.label)"
         } else {
             summary = event.detail
         }
         let matchingClip = probe.entries.first { clip in
+            guard clip.audioName != nil else { return false }
+            if clip.eventID == event.id { return true }
             guard let duration = clip.recordingDuration else { return false }
             return (0..<duration).contains(event.time.timeIntervalSince(clip.time))
         }
@@ -356,7 +369,7 @@ struct HistoryHome: View {
             if let bpm = event.physiology?.bpm { Text("心率 \(Int(bpm)) bpm").font(.caption).foregroundStyle(.secondary) }
             if let matchingClip {
                 Button("播放当时的录音") {
-                    audio.play(matchingClip, from: event.time.timeIntervalSince(matchingClip.time))
+                    audio.play(matchingClip, from: max(0, event.time.timeIntervalSince(matchingClip.time)))
                 }
             }
             if let reason = estimate?.reason { Text(reason).font(.caption) }
@@ -380,8 +393,12 @@ struct HistoryHome: View {
         return VStack(alignment: .leading, spacing: 12) {
             if notes.isEmpty { Text("还没有录音。").foregroundStyle(.secondary) }
             if let message = audio.message { Text(message).font(.footnote) }
-            ForEach(notes) { entry in
-                VStack(alignment: .leading, spacing: 8) {
+            ForEach(notes) { entry in recordingRow(entry) }
+        }
+    }
+
+    private func recordingRow(_ entry: Entry) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
                     Text(entry.time.formatted(date: .abbreviated, time: .shortened)).font(.headline)
                     Text(entry.detail).foregroundStyle(.secondary)
                     if let duration = entry.recordingDuration {
@@ -397,10 +414,8 @@ struct HistoryHome: View {
                     if let transcript = probe.entries.first(where: { $0.kind == "本地转写" && $0.eventID == entry.id }) {
                         Text(transcript.detail).textSelection(.enabled)
                     }
-                }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
-            }
-        }
+        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
+            .background(.teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func recordingEvents(for clip: Entry, endingAt end: Date) -> some View {
